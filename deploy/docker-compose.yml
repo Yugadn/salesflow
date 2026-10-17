@@ -1,0 +1,86 @@
+name: salesflow
+
+x-service: &service
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD", "/app", "healthcheck"]
+    interval: 5s
+    timeout: 3s
+    retries: 20
+
+x-amqp-env: &amqp-env
+  RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+  RETRY_DELAY: 3s
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: salesflow
+      POSTGRES_PASSWORD: salesflow
+    ports: ["15432:5432"]
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U salesflow"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    ports: ["5672:5672", "15672:15672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  master:
+    <<: *service
+    build: { context: .., args: { SERVICE: master } }
+    environment:
+      DATABASE_URL: postgres://salesflow:salesflow@postgres:5432/master_db?sslmode=disable
+    ports: ["8081:8081"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  order:
+    <<: *service
+    build: { context: .., args: { SERVICE: order } }
+    environment:
+      <<: *amqp-env
+      DATABASE_URL: postgres://salesflow:salesflow@postgres:5432/order_db?sslmode=disable
+      MASTER_URL: http://master:8081
+    ports: ["8082:8082"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      master: { condition: service_healthy }
+
+  warehouse:
+    <<: *service
+    build: { context: .., args: { SERVICE: warehouse } }
+    environment:
+      <<: *amqp-env
+      DATABASE_URL: postgres://salesflow:salesflow@postgres:5432/warehouse_db?sslmode=disable
+    ports: ["8083:8083"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  billing:
+    <<: *service
+    build: { context: .., args: { SERVICE: billing } }
+    environment:
+      <<: *amqp-env
+      DATABASE_URL: postgres://salesflow:salesflow@postgres:5432/billing_db?sslmode=disable
+      BUSINESS_TIMEZONE: Asia/Jakarta
+    ports: ["8084:8084"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+volumes:
+  pgdata:

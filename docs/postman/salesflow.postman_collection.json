@@ -1,0 +1,874 @@
+{
+  "info": {
+    "name": "salesflow — order to cash",
+    "description": "Run the whole collection with the Collection Runner against `make up`.\n\nIt seeds a fresh region (codes carry a random suffix, so it can be re-run), places an order for 2 cartons + 6 pieces, ships it with one carton damaged, and checks that only delivered goods are invoiced.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "master",
+      "value": "http://localhost:8081"
+    },
+    {
+      "key": "order",
+      "value": "http://localhost:8082"
+    },
+    {
+      "key": "warehouse",
+      "value": "http://localhost:8083"
+    },
+    {
+      "key": "billing",
+      "value": "http://localhost:8084"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Master data",
+      "item": [
+        {
+          "name": "Create UoM PCS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{master}}/uoms",
+              "host": [
+                "{{master}}"
+              ],
+              "path": [
+                "uoms"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"PCS\",\n  \"name\": \"Pieces\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('sfx', Date.now().toString(36));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created or already exists', () => pm.expect([201, 409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create UoM DUS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{master}}/uoms",
+              "host": [
+                "{{master}}"
+              ],
+              "path": [
+                "uoms"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"DUS\",\n  \"name\": \"Carton\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created or already exists', () => pm.expect([201, 409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create region",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{master}}/regions",
+              "host": [
+                "{{master}}"
+              ],
+              "path": [
+                "regions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"JKT-{{sfx}}\",\n  \"name\": \"Jakarta {{sfx}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('regionId', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create customer (30-day term)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{master}}/customers",
+              "host": [
+                "{{master}}"
+              ],
+              "path": [
+                "customers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"C-{{sfx}}\",\n  \"name\": \"Toko Maju\",\n  \"region_id\": {{regionId}},\n  \"payment_term_days\": 30\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('customerId', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create salesperson",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{master}}/salespersons",
+              "host": [
+                "{{master}}"
+              ],
+              "path": [
+                "salespersons"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"S-{{sfx}}\",\n  \"name\": \"Andi\",\n  \"region_id\": {{regionId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('salespersonId', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create product (base unit PCS)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{master}}/products",
+              "host": [
+                "{{master}}"
+              ],
+              "path": [
+                "products"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"TEA-{{sfx}}\",\n  \"name\": \"Teh Botol 350ml\",\n  \"base_uom\": \"PCS\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('productId', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1 DUS = 24 PCS",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{master}}/products/{{productId}}/uoms",
+              "host": [
+                "{{master}}"
+              ],
+              "path": [
+                "products",
+                "{{productId}}",
+                "uoms"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uom\": \"DUS\",\n  \"factor\": 24\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Price per carton in region",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{master}}/products/{{productId}}/prices",
+              "host": [
+                "{{master}}"
+              ],
+              "path": [
+                "products",
+                "{{productId}}",
+                "prices"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"region_id\": {{regionId}},\n  \"uom\": \"DUS\",\n  \"price\": \"96000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Price per piece in region",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{master}}/products/{{productId}}/prices",
+              "host": [
+                "{{master}}"
+              ],
+              "path": [
+                "products",
+                "{{productId}}",
+                "prices"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"region_id\": {{regionId}},\n  \"uom\": \"PCS\",\n  \"price\": \"4200\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Warehouse",
+      "item": [
+        {
+          "name": "Create warehouse for region",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{warehouse}}/warehouses",
+              "host": [
+                "{{warehouse}}"
+              ],
+              "path": [
+                "warehouses"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"WH-{{sfx}}\",\n  \"name\": \"Gudang Jakarta\",\n  \"region_id\": {{regionId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('warehouseId', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Receive 100 pieces",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{warehouse}}/warehouses/{{warehouseId}}/receipts",
+              "host": [
+                "{{warehouse}}"
+              ],
+              "path": [
+                "warehouses",
+                "{{warehouseId}}",
+                "receipts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": {{productId}},\n  \"qty\": 100\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Order",
+      "item": [
+        {
+          "name": "Create draft: 2 DUS + 6 PCS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{order}}/orders",
+              "host": [
+                "{{order}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": {{customerId}},\n  \"salesperson_id\": {{salespersonId}},\n  \"lines\": [\n    {\n      \"product_id\": {{productId}},\n      \"uom\": \"DUS\",\n      \"qty\": 2\n    },\n    {\n      \"product_id\": {{productId}},\n      \"uom\": \"PCS\",\n      \"qty\": 6\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('orderId', pm.response.json().data.id);",
+                  "pm.test('total = 2 x 96000 + 6 x 4200', () => pm.expect(pm.response.json().data.total).to.eql('217200'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm (publishes order.confirmed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{order}}/orders/{{orderId}}/confirm",
+              "host": [
+                "{{order}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}",
+                "confirm"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('confirmed', () => pm.expect(pm.response.json().data.status).to.eql('CONFIRMED'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Fulfilment",
+      "item": [
+        {
+          "name": "Order is FULFILLING (stock reserved)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{order}}/orders/{{orderId}}",
+              "host": [
+                "{{order}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "setTimeout(() => {}, 1500);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('fulfilling', () => pm.expect(pm.response.json().data.status).to.eql('FULFILLING'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Stock: 54 of 100 reserved",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{warehouse}}/warehouses/{{warehouseId}}/stocks",
+              "host": [
+                "{{warehouse}}"
+              ],
+              "path": [
+                "warehouses",
+                "{{warehouseId}}",
+                "stocks"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const s = pm.response.json().data[0];",
+                  "pm.test('reserved 54', () => pm.expect(s.reserved).to.eql(54));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Find the delivery order",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{warehouse}}/deliveries?limit=200",
+              "host": [
+                "{{warehouse}}"
+              ],
+              "path": [
+                "deliveries?limit=200"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json().data.find(x => x.order_id == pm.collectionVariables.get('orderId'));",
+                  "pm.test('delivery exists', () => pm.expect(d).to.be.an('object'));",
+                  "pm.collectionVariables.set('deliveryId', d.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ship",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{warehouse}}/deliveries/{{deliveryId}}/ship",
+              "host": [
+                "{{warehouse}}"
+              ],
+              "path": [
+                "deliveries",
+                "{{deliveryId}}",
+                "ship"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deliver (1 carton damaged)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{warehouse}}/deliveries/{{deliveryId}}/deliver",
+              "host": [
+                "{{warehouse}}"
+              ],
+              "path": [
+                "deliveries",
+                "{{deliveryId}}",
+                "deliver"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"line_no\": 1,\n      \"delivered_qty\": 1\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('delivered', () => pm.expect(pm.response.json().data.status).to.eql('DELIVERED'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Billing",
+      "item": [
+        {
+          "name": "Order is INVOICED",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{order}}/orders/{{orderId}}",
+              "host": [
+                "{{order}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "setTimeout(() => {}, 1500);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const o = pm.response.json().data;",
+                  "pm.test('invoiced', () => pm.expect(o.status).to.eql('INVOICED'));",
+                  "pm.test('has invoice number', () => pm.expect(o.invoice_number).to.match(/^INV-/));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invoice bills only delivered goods",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{billing}}/invoices?customer_id={{customerId}}",
+              "host": [
+                "{{billing}}"
+              ],
+              "path": [
+                "invoices?customer_id={{customerId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const inv = pm.response.json().data[0];",
+                  "pm.test('1 x 96000 + 6 x 4200', () => pm.expect(inv.total).to.eql('121200'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

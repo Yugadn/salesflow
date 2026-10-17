@@ -1,0 +1,742 @@
+openapi: 3.1.0
+info:
+  title: salesflow
+  version: 0.1.0
+  description: |
+    B2B sales & distribution, order-to-cash. Four services, one spec; each path
+    lists the service that serves it.
+
+    Every success response is `{"data": ...}` and every error is
+    `{"error": {"code": "...", "message": "..."}}`. Money is a decimal string
+    (`"96000.50"`), never a float. Quantities in `base_qty`, `on_hand` and
+    `reserved` are counted in the product's base unit.
+
+servers:
+  - url: http://localhost:8081
+    description: master-service (default)
+
+tags:
+  - name: master
+    description: master-service · :8081 · regions, customers, salespersons, products, UoM, prices
+  - name: order
+    description: order-service · :8082 · sales orders
+  - name: warehouse
+    description: warehouse-service · :8083 · warehouses, stock, delivery orders
+  - name: billing
+    description: billing-service · :8084 · invoices
+
+paths:
+  # ---------------------------------------------------------------- master
+  /regions:
+    servers: [{ url: http://localhost:8081 }]
+    post:
+      tags: [master]
+      summary: Create a sales region
+      requestBody: { $ref: "#/components/requestBodies/Region" }
+      responses:
+        "201": { $ref: "#/components/responses/Region" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    get:
+      tags: [master]
+      summary: List regions
+      responses:
+        "200": { $ref: "#/components/responses/RegionList" }
+
+  /customers:
+    servers: [{ url: http://localhost:8081 }]
+    post:
+      tags: [master]
+      summary: Create a customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Customer" }
+            example: { code: C-001, name: Toko Maju, region_id: 1, payment_term_days: 30 }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/CustomerData" } } } }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    get:
+      tags: [master]
+      summary: List customers
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Customer" } } } }
+
+  /customers/{id}:
+    servers: [{ url: http://localhost:8081 }]
+    get:
+      tags: [master]
+      summary: Get a customer
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/CustomerData" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /salespersons:
+    servers: [{ url: http://localhost:8081 }]
+    post:
+      tags: [master]
+      summary: Create a salesperson
+      description: A salesperson may only sell to customers in their own region.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Salesperson" }
+            example: { code: S-001, name: Andi, region_id: 1 }
+      responses:
+        "201":
+          description: Created
+          content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/Salesperson" } } } } }
+        "422": { $ref: "#/components/responses/Error" }
+    get:
+      tags: [master]
+      summary: List salespersons
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Salesperson" } } } }
+
+  /uoms:
+    servers: [{ url: http://localhost:8081 }]
+    post:
+      tags: [master]
+      summary: Create a unit of measure
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UoM" }
+            example: { code: DUS, name: Carton }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/UoM" } } } } } }
+        "409": { $ref: "#/components/responses/Error" }
+    get:
+      tags: [master]
+      summary: List units of measure
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/UoM" } } } }
+
+  /products:
+    servers: [{ url: http://localhost:8081 }]
+    post:
+      tags: [master]
+      summary: Create a product
+      description: The base UoM is registered automatically with factor 1.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProductInput" }
+            example: { sku: TEA-350, name: Teh Botol 350ml, base_uom: PCS }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/ProductData" } } } }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    get:
+      tags: [master]
+      summary: List products with their UoM conversions
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Product" } } } }
+
+  /products/{id}:
+    servers: [{ url: http://localhost:8081 }]
+    get:
+      tags: [master]
+      summary: Get a product
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/ProductData" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /products/{id}/uoms:
+    servers: [{ url: http://localhost:8081 }]
+    put:
+      tags: [master]
+      summary: Add or change a UoM conversion
+      description: How many base units one unit holds, e.g. 1 DUS = 24 PCS. The base UoM's factor is fixed at 1.
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProductUoM" }
+            example: { uom: DUS, factor: 24 }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/ProductData" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /products/{id}/prices:
+    servers: [{ url: http://localhost:8081 }]
+    put:
+      tags: [master]
+      summary: Set the price of a product in a region for one UoM
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PriceInput" }
+            example: { region_id: 1, uom: DUS, price: "96000" }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/Price" } } } } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "422":
+          description: "Validation error, e.g. `uom_not_configured` when the product is not sold in that UoM."
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    get:
+      tags: [master]
+      summary: List a product's prices
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Price" } } } }
+
+  /internal/quote:
+    servers: [{ url: http://localhost:8081 }]
+    post:
+      tags: [master]
+      summary: Price order lines for a customer's region (service-to-service)
+      description: Called by order-service when a draft is created. Not meant for clients.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QuoteRequest" }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/Quote" } } } } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- order
+  /orders:
+    servers: [{ url: http://localhost:8082 }]
+    post:
+      tags: [order]
+      summary: Create a draft sales order
+      description: |
+        Prices every line from the customer's regional price list and converts
+        quantities to base units. Fails with `region_mismatch` when the
+        salesperson does not cover the customer's region.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateOrder" }
+            example:
+              customer_id: 1
+              salesperson_id: 1
+              lines: [{ product_id: 1, uom: DUS, qty: 2 }, { product_id: 1, uom: PCS, qty: 6 }]
+      responses:
+        "201": { $ref: "#/components/responses/Order" }
+        "422":
+          description: "Validation error: `region_mismatch`, `price_not_set`, `uom_not_configured`, `duplicate_line`, ..."
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    get:
+      tags: [order]
+      summary: List orders
+      parameters:
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/OrderStatus" } }
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Order" } } } }
+
+  /orders/{id}:
+    servers: [{ url: http://localhost:8082 }]
+    get:
+      tags: [order]
+      summary: Get an order
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Order" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /orders/{id}/confirm:
+    servers: [{ url: http://localhost:8082 }]
+    post:
+      tags: [order]
+      summary: Confirm a draft
+      description: Publishes `order.confirmed`; warehouse-service then reserves stock asynchronously.
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Order" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /orders/{id}/cancel:
+    servers: [{ url: http://localhost:8082 }]
+    post:
+      tags: [order]
+      summary: Cancel a draft
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Order" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- warehouse
+  /warehouses:
+    servers: [{ url: http://localhost:8083 }]
+    post:
+      tags: [warehouse]
+      summary: Create a warehouse (one per region)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Warehouse" }
+            example: { code: WH-JKT, name: Gudang Jakarta, region_id: 1 }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/Warehouse" } } } } } }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    get:
+      tags: [warehouse]
+      summary: List warehouses
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Warehouse" } } } }
+
+  /warehouses/{id}/receipts:
+    servers: [{ url: http://localhost:8083 }]
+    post:
+      tags: [warehouse]
+      summary: Receive stock (base units)
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id, qty]
+              properties:
+                product_id: { type: integer, format: int64 }
+                qty: { type: integer, format: int64, minimum: 1 }
+            example: { product_id: 1, qty: 100 }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/Stock" } } } } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /warehouses/{id}/stocks:
+    servers: [{ url: http://localhost:8083 }]
+    get:
+      tags: [warehouse]
+      summary: Stock levels
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Stock" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /deliveries:
+    servers: [{ url: http://localhost:8083 }]
+    get:
+      tags: [warehouse]
+      summary: List delivery orders
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [PENDING, SHIPPED, DELIVERED] } }
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Delivery" } } } }
+
+  /deliveries/{id}:
+    servers: [{ url: http://localhost:8083 }]
+    get:
+      tags: [warehouse]
+      summary: Get a delivery order
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Delivery" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /deliveries/{id}/ship:
+    servers: [{ url: http://localhost:8083 }]
+    post:
+      tags: [warehouse]
+      summary: Mark a delivery as shipped
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { $ref: "#/components/responses/Delivery" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /deliveries/{id}/deliver:
+    servers: [{ url: http://localhost:8083 }]
+    post:
+      tags: [warehouse]
+      summary: Record proof of delivery
+      description: |
+        Lines not listed are delivered in full. List a lower `delivered_qty`
+        for damaged or refused goods; the whole reservation is released and
+        only delivered units leave stock. Publishes `delivery.completed`.
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                lines:
+                  type: array
+                  items:
+                    type: object
+                    required: [line_no, delivered_qty]
+                    properties:
+                      line_no: { type: integer }
+                      delivered_qty: { type: integer, format: int64, minimum: 0 }
+            example: { lines: [{ line_no: 1, delivered_qty: 1 }] }
+      responses:
+        "200": { $ref: "#/components/responses/Delivery" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- billing
+  /invoices:
+    servers: [{ url: http://localhost:8084 }]
+    get:
+      tags: [billing]
+      summary: List invoices
+      parameters:
+        - { name: customer_id, in: query, schema: { type: integer, format: int64 } }
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Invoice" } } } }
+
+  /invoices/{id}:
+    servers: [{ url: http://localhost:8084 }]
+    get:
+      tags: [billing]
+      summary: Get an invoice
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/Invoice" } } } } } }
+        "404": { $ref: "#/components/responses/Error" }
+
+components:
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+
+  requestBodies:
+    Region:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Region" }
+          example: { code: JKT, name: Jakarta }
+
+  responses:
+    Error:
+      description: Error
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Region:
+      description: OK
+      content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/Region" } } } } }
+    RegionList:
+      description: OK
+      content: { application/json: { schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Region" } } } } } }
+    Order:
+      description: OK
+      content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/Order" } } } } }
+    Delivery:
+      description: OK
+      content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/Delivery" } } } } }
+
+  schemas:
+    Money:
+      type: string
+      pattern: '^-?\d+(\.\d{1,2})?$'
+      description: Decimal amount, at most 2 places.
+      examples: ["96000", "1333.33"]
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, examples: [region_mismatch] }
+            message: { type: string }
+
+    Region:
+      type: object
+      required: [code, name]
+      properties:
+        id: { type: integer, format: int64, readOnly: true }
+        code: { type: string }
+        name: { type: string }
+
+    Customer:
+      type: object
+      required: [code, name, region_id, payment_term_days]
+      properties:
+        id: { type: integer, format: int64, readOnly: true }
+        code: { type: string }
+        name: { type: string }
+        region_id: { type: integer, format: int64 }
+        payment_term_days: { type: integer, minimum: 0, maximum: 365, description: "0 = cash on delivery" }
+    CustomerData:
+      type: object
+      properties: { data: { $ref: "#/components/schemas/Customer" } }
+
+    Salesperson:
+      type: object
+      required: [code, name, region_id]
+      properties:
+        id: { type: integer, format: int64, readOnly: true }
+        code: { type: string }
+        name: { type: string }
+        region_id: { type: integer, format: int64 }
+
+    UoM:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, examples: [PCS] }
+        name: { type: string }
+
+    ProductUoM:
+      type: object
+      required: [uom, factor]
+      properties:
+        uom: { type: string }
+        factor: { type: integer, format: int64, minimum: 1, description: Base units per one of this UoM }
+
+    ProductInput:
+      type: object
+      required: [sku, name, base_uom]
+      properties:
+        sku: { type: string }
+        name: { type: string }
+        base_uom: { type: string, description: The unit stock is counted in }
+    Product:
+      allOf:
+        - $ref: "#/components/schemas/ProductInput"
+        - type: object
+          properties:
+            id: { type: integer, format: int64 }
+            uoms: { type: array, items: { $ref: "#/components/schemas/ProductUoM" } }
+    ProductData:
+      type: object
+      properties: { data: { $ref: "#/components/schemas/Product" } }
+
+    PriceInput:
+      type: object
+      required: [region_id, uom, price]
+      properties:
+        region_id: { type: integer, format: int64 }
+        uom: { type: string }
+        price: { $ref: "#/components/schemas/Money" }
+    Price:
+      allOf:
+        - $ref: "#/components/schemas/PriceInput"
+        - type: object
+          properties:
+            product_id: { type: integer, format: int64 }
+
+    QuoteRequest:
+      type: object
+      required: [customer_id, salesperson_id, lines]
+      properties:
+        customer_id: { type: integer, format: int64 }
+        salesperson_id: { type: integer, format: int64 }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id: { type: integer, format: int64 }
+              uom: { type: string }
+    Quote:
+      type: object
+      properties:
+        customer: { $ref: "#/components/schemas/Customer" }
+        salesperson: { $ref: "#/components/schemas/Salesperson" }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id: { type: integer, format: int64 }
+              sku: { type: string }
+              product_name: { type: string }
+              uom: { type: string }
+              conversion_factor: { type: integer, format: int64 }
+              unit_price: { $ref: "#/components/schemas/Money" }
+
+    CreateOrder:
+      type: object
+      required: [customer_id, salesperson_id, lines]
+      properties:
+        customer_id: { type: integer, format: int64 }
+        salesperson_id: { type: integer, format: int64 }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [product_id, uom, qty]
+            properties:
+              product_id: { type: integer, format: int64 }
+              uom: { type: string }
+              qty: { type: integer, format: int64, minimum: 1, maximum: 1000000 }
+
+    OrderStatus:
+      type: string
+      enum: [DRAFT, CONFIRMED, FULFILLING, DELIVERED, INVOICED, REJECTED, CANCELLED]
+
+    Order:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        number: { type: string, examples: [SO-000001] }
+        status: { $ref: "#/components/schemas/OrderStatus" }
+        customer_id: { type: integer, format: int64 }
+        customer_code: { type: string }
+        customer_name: { type: string }
+        region_id: { type: integer, format: int64 }
+        payment_term_days: { type: integer }
+        salesperson_id: { type: integer, format: int64 }
+        salesperson_name: { type: string }
+        total: { $ref: "#/components/schemas/Money" }
+        reject_reason: { type: string }
+        invoice_number: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        confirmed_at: { type: string, format: date-time }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              line_no: { type: integer }
+              product_id: { type: integer, format: int64 }
+              sku: { type: string }
+              product_name: { type: string }
+              uom: { type: string }
+              conversion_factor: { type: integer, format: int64 }
+              qty: { type: integer, format: int64 }
+              base_qty: { type: integer, format: int64 }
+              unit_price: { $ref: "#/components/schemas/Money" }
+              subtotal: { $ref: "#/components/schemas/Money" }
+
+    Warehouse:
+      type: object
+      required: [code, name, region_id]
+      properties:
+        id: { type: integer, format: int64, readOnly: true }
+        code: { type: string }
+        name: { type: string }
+        region_id: { type: integer, format: int64 }
+
+    Stock:
+      type: object
+      properties:
+        warehouse_id: { type: integer, format: int64 }
+        product_id: { type: integer, format: int64 }
+        on_hand: { type: integer, format: int64 }
+        reserved: { type: integer, format: int64 }
+
+    Delivery:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        number: { type: string, examples: [DO-000001] }
+        order_id: { type: integer, format: int64 }
+        order_number: { type: string }
+        warehouse_id: { type: integer, format: int64 }
+        customer_id: { type: integer, format: int64 }
+        customer_name: { type: string }
+        payment_term_days: { type: integer }
+        status: { type: string, enum: [PENDING, SHIPPED, DELIVERED] }
+        created_at: { type: string, format: date-time }
+        shipped_at: { type: string, format: date-time }
+        delivered_at: { type: string, format: date-time }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              line_no: { type: integer }
+              product_id: { type: integer, format: int64 }
+              sku: { type: string }
+              product_name: { type: string }
+              uom: { type: string }
+              conversion_factor: { type: integer, format: int64 }
+              ordered_qty: { type: integer, format: int64 }
+              delivered_qty: { type: [integer, "null"], format: int64 }
+              unit_price: { $ref: "#/components/schemas/Money" }
+
+    Invoice:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        number: { type: string, examples: [INV-000001] }
+        order_id: { type: integer, format: int64 }
+        order_number: { type: string }
+        delivery_id: { type: integer, format: int64 }
+        delivery_number: { type: string }
+        customer_id: { type: integer, format: int64 }
+        customer_name: { type: string }
+        issue_date: { type: string, format: date, description: Delivery date in the business time zone (Asia/Jakarta) }
+        due_date: { type: string, format: date, description: issue_date + customer payment term }
+        total: { $ref: "#/components/schemas/Money" }
+        created_at: { type: string, format: date-time }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              line_no: { type: integer }
+              product_id: { type: integer, format: int64 }
+              sku: { type: string }
+              product_name: { type: string }
+              uom: { type: string }
+              qty: { type: integer, format: int64, description: Delivered quantity }
+              unit_price: { $ref: "#/components/schemas/Money" }
+              amount: { $ref: "#/components/schemas/Money" }

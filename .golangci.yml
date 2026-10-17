@@ -1,0 +1,24 @@
+version: "2"
+
+run:
+  build-tags: [integration, e2e]
+
+linters:
+  enable:
+    - bodyclose
+    - errorlint
+    - misspell
+    - nilerr
+    - unconvert
+  settings:
+    misspell:
+      # "Teh" is Indonesian for tea (as in the brand Teh Botol), not a typo of "The".
+      ignore-rules: [teh]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: [github.com/yugadn/salesflow]
