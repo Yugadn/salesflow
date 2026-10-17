@@ -159,7 +159,8 @@ func (q *Queries) ListInvoiceLines(ctx context.Context, invoiceIds []int64) ([]I
 
 const listInvoices = `-- name: ListInvoices :many
 SELECT id, number, order_id, order_number, delivery_id, delivery_number, customer_id, customer_name, issue_date, due_date, total, created_at FROM invoices
-WHERE $2::bigint IS NULL OR customer_id = $2::bigint
+WHERE ($2::bigint IS NULL OR customer_id = $2::bigint)
+  AND ($3::bigint IS NULL OR order_id = $3::bigint)
 ORDER BY id DESC
 LIMIT $1
 `
@@ -167,10 +168,11 @@ LIMIT $1
 type ListInvoicesParams struct {
 	Limit      int32
 	CustomerID *int64
+	OrderID    *int64
 }
 
 func (q *Queries) ListInvoices(ctx context.Context, arg ListInvoicesParams) ([]Invoice, error) {
-	rows, err := q.db.Query(ctx, listInvoices, arg.Limit, arg.CustomerID)
+	rows, err := q.db.Query(ctx, listInvoices, arg.Limit, arg.CustomerID, arg.OrderID)
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -21,13 +22,16 @@ func New(svc *usecase.Service) *Handler { return &Handler{svc: svc} }
 func (h *Handler) Register(e *echo.Echo) {
 	e.POST("/regions", h.createRegion)
 	e.GET("/regions", h.listRegions)
+	e.PUT("/regions/:id", h.updateRegion)
 
 	e.POST("/customers", h.createCustomer)
 	e.GET("/customers", h.listCustomers)
 	e.GET("/customers/:id", h.getCustomer)
+	e.PUT("/customers/:id", h.updateCustomer)
 
 	e.POST("/salespersons", h.createSalesperson)
 	e.GET("/salespersons", h.listSalespersons)
+	e.PUT("/salespersons/:id", h.updateSalesperson)
 
 	e.POST("/uoms", h.createUoM)
 	e.GET("/uoms", h.listUoMs)
@@ -35,6 +39,7 @@ func (h *Handler) Register(e *echo.Echo) {
 	e.POST("/products", h.createProduct)
 	e.GET("/products", h.listProducts)
 	e.GET("/products/:id", h.getProduct)
+	e.PUT("/products/:id", h.updateProduct)
 	e.PUT("/products/:id/uoms", h.setConversion)
 	e.PUT("/products/:id/prices", h.setPrice)
 	e.GET("/products/:id/prices", h.listPrices)
@@ -223,3 +228,25 @@ func (h *Handler) quote(c echo.Context) error {
 	}
 	return httpx.JSON(c, http.StatusOK, out)
 }
+
+// update binds the body into a T, calls fn with the path id, and writes the result.
+func update[T any](c echo.Context, fn func(ctx context.Context, id int64, in T) (T, error)) error {
+	id, err := httpx.ParamID(c, "id")
+	if err != nil {
+		return err
+	}
+	var in T
+	if err := httpx.Bind(c, &in); err != nil {
+		return err
+	}
+	out, err := fn(c.Request().Context(), id, in)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusOK, out)
+}
+
+func (h *Handler) updateRegion(c echo.Context) error      { return update(c, h.svc.UpdateRegion) }
+func (h *Handler) updateCustomer(c echo.Context) error    { return update(c, h.svc.UpdateCustomer) }
+func (h *Handler) updateSalesperson(c echo.Context) error { return update(c, h.svc.UpdateSalesperson) }
+func (h *Handler) updateProduct(c echo.Context) error     { return update(c, h.svc.UpdateProduct) }

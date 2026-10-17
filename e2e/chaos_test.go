@@ -35,19 +35,15 @@ func compose(t *testing.T, args ...string) string {
 	return string(out)
 }
 
-// deliveredOrder runs an order up to a SHIPPED delivery and returns both IDs.
+// shippedOrder runs an order up to a SHIPPED delivery and returns both IDs.
 func shippedOrder(t *testing.T, w world) (orderID, deliveryID int64) {
 	t.Helper()
 	o := w.placeOrder(t)
 	waitForStatus(t, o.ID, "FULFILLING")
 	var deliveries []delivery
-	mustCall(t, http.StatusOK, http.MethodGet, warehouseURL+"/deliveries?limit=200", nil, &deliveries)
-	for _, d := range deliveries {
-		if d.OrderID == o.ID {
-			deliveryID = d.ID
-		}
-	}
-	require.NotZero(t, deliveryID)
+	mustCall(t, http.StatusOK, http.MethodGet, fmt.Sprintf("%s/deliveries?order_id=%d", warehouseURL, o.ID), nil, &deliveries)
+	require.Len(t, deliveries, 1)
+	deliveryID = deliveries[0].ID
 	mustCall(t, http.StatusOK, http.MethodPost, fmt.Sprintf("%s/deliveries/%d/ship", warehouseURL, deliveryID), nil, nil)
 	return o.ID, deliveryID
 }

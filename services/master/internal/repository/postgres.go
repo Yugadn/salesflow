@@ -253,3 +253,36 @@ func (p *Postgres) ListPrices(ctx context.Context, productID int64) ([]domain.Pr
 	}
 	return out, nil
 }
+
+func (p *Postgres) UpdateRegion(ctx context.Context, r domain.Region) (domain.Region, error) {
+	row, err := p.q.UpdateRegion(ctx, sqlcdb.UpdateRegionParams{ID: r.ID, Code: r.Code, Name: r.Name})
+	if err != nil {
+		return domain.Region{}, mapErr(err, "region")
+	}
+	return domain.Region{ID: row.ID, Code: row.Code, Name: row.Name}, nil
+}
+
+func (p *Postgres) UpdateCustomer(ctx context.Context, c domain.Customer) (domain.Customer, error) {
+	row, err := p.q.UpdateCustomer(ctx, sqlcdb.UpdateCustomerParams{
+		ID: c.ID, Code: c.Code, Name: c.Name, RegionID: c.RegionID, PaymentTermDays: int32(c.PaymentTermDays),
+	})
+	if err != nil {
+		return domain.Customer{}, mapErr(err, "customer")
+	}
+	return toCustomer(row.ID, row.Code, row.Name, row.RegionID, row.PaymentTermDays), nil
+}
+
+func (p *Postgres) UpdateSalesperson(ctx context.Context, s domain.Salesperson) (domain.Salesperson, error) {
+	row, err := p.q.UpdateSalesperson(ctx, sqlcdb.UpdateSalespersonParams{ID: s.ID, Code: s.Code, Name: s.Name, RegionID: s.RegionID})
+	if err != nil {
+		return domain.Salesperson{}, mapErr(err, "salesperson")
+	}
+	return domain.Salesperson{ID: row.ID, Code: row.Code, Name: row.Name, RegionID: row.RegionID}, nil
+}
+
+func (p *Postgres) UpdateProduct(ctx context.Context, prod domain.Product) (domain.Product, error) {
+	if _, err := p.q.UpdateProduct(ctx, sqlcdb.UpdateProductParams{ID: prod.ID, Sku: prod.SKU, Name: prod.Name}); err != nil {
+		return domain.Product{}, mapErr(err, "product")
+	}
+	return p.GetProduct(ctx, prod.ID)
+}

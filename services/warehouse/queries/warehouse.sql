@@ -59,7 +59,8 @@ SELECT * FROM deliveries WHERE id = $1 FOR UPDATE;
 
 -- name: ListDeliveries :many
 SELECT * FROM deliveries
-WHERE sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status')::text
+WHERE (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status')::text)
+  AND (sqlc.narg('order_id')::bigint IS NULL OR order_id = sqlc.narg('order_id')::bigint)
 ORDER BY id DESC
 LIMIT $1;
 
@@ -73,3 +74,8 @@ UPDATE deliveries SET status = $2, shipped_at = $3, delivered_at = $4 WHERE id =
 
 -- name: SetDeliveredQty :exec
 UPDATE delivery_lines SET delivered_qty = $3 WHERE delivery_id = $1 AND line_no = $2;
+
+-- The region is not editable: open delivery orders belong to it.
+-- name: UpdateWarehouse :one
+UPDATE warehouses SET code = $2, name = $3 WHERE id = $1
+RETURNING id, code, name, region_id;

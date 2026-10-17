@@ -206,3 +206,21 @@ func TestReceiveStock_Validation(t *testing.T) {
 	_, err = e.svc.ReceiveStock(ctx, 999, tea, 10)
 	assert.True(t, apperr.IsNotFound(err))
 }
+
+func TestUpdateWarehouse_CannotMoveRegion(t *testing.T) {
+	e := setup(t, 0, 0)
+	ctx := context.Background()
+
+	got, err := e.svc.UpdateWarehouse(ctx, e.whID, domain.Warehouse{Code: "wh-jkt-1", Name: "Gudang Jakarta Barat"})
+	require.NoError(t, err)
+	assert.Equal(t, "WH-JKT-1", got.Code)
+	assert.Equal(t, jakarta, got.RegionID)
+
+	_, err = e.svc.UpdateWarehouse(ctx, e.whID, domain.Warehouse{Code: "WH", Name: "X", RegionID: 2})
+	ae, ok := apperr.As(err)
+	require.True(t, ok)
+	assert.Equal(t, "region_immutable", ae.Code)
+
+	_, err = e.svc.UpdateWarehouse(ctx, 999, domain.Warehouse{Code: "WH", Name: "X"})
+	assert.True(t, apperr.IsNotFound(err))
+}

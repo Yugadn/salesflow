@@ -4,3 +4,6 @@ deploy
 e2e
 **/*_test.go
 *.md
+web
+tools
+docs

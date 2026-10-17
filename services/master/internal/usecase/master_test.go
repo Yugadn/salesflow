@@ -169,3 +169,37 @@ func TestSetConversion_RejectsChangingBaseFactor(t *testing.T) {
 
 	require.Error(t, err)
 }
+
+func TestUpdateProduct_KeepsBaseUoM(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	got, err := f.svc.UpdateProduct(ctx, f.tea.ID, domain.Product{SKU: "tea-350b", Name: "Teh Botol 350 ml"})
+	require.NoError(t, err)
+	assert.Equal(t, "TEA-350B", got.SKU)
+	assert.Equal(t, "PCS", got.BaseUoM, "omitted base uom keeps the current one")
+
+	_, err = f.svc.UpdateProduct(ctx, f.tea.ID, domain.Product{SKU: "TEA-350", Name: "Teh", BaseUoM: "DUS"})
+	ae, ok := apperr.As(err)
+	require.True(t, ok)
+	assert.Equal(t, "base_uom_immutable", ae.Code)
+}
+
+func TestUpdates_ValidateAndReportMissing(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	c, err := f.svc.UpdateCustomer(ctx, f.customer.ID, domain.Customer{Code: "c1", Name: "Toko Maju Jaya", RegionID: f.surabaya.ID, PaymentTermDays: 45})
+	require.NoError(t, err)
+	assert.Equal(t, f.customer.ID, c.ID)
+	assert.Equal(t, 45, c.PaymentTermDays)
+
+	_, err = f.svc.UpdateCustomer(ctx, f.customer.ID, domain.Customer{Code: "C1", Name: "", RegionID: f.jakarta.ID})
+	require.Error(t, err, "validation still applies on update")
+
+	_, err = f.svc.UpdateSalesperson(ctx, 999, domain.Salesperson{Code: "S9", Name: "X", RegionID: f.jakarta.ID})
+	assert.True(t, apperr.IsNotFound(err))
+
+	_, err = f.svc.UpdateRegion(ctx, 999, domain.Region{Code: "X", Name: "X"})
+	assert.True(t, apperr.IsNotFound(err))
+}

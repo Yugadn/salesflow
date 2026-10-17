@@ -1,7 +1,7 @@
 COMPOSE := docker compose -f deploy/docker-compose.yml
 SERVICES := master order warehouse billing
 
-.PHONY: up down logs test test-integration cover e2e e2e-chaos lint sqlc
+.PHONY: up down logs seed web-dev test test-integration cover e2e e2e-chaos lint sqlc
 
 up: ## build and start the whole stack, waiting until every container is healthy
 	$(COMPOSE) up -d --build --wait
@@ -11,6 +11,12 @@ down: ## stop the stack and delete its data
 
 logs:
 	$(COMPOSE) logs -f
+
+seed: ## fill a fresh stack with demo data (needs make up)
+	go run ./tools/seed
+
+web-dev: ## frontend with hot reload on :5173 (backend from make up)
+	cd web && npm install && npm run dev
 
 test: ## unit tests
 	go test -race ./...

@@ -9,11 +9,14 @@ shipped and delivered, and an invoice is issued automatically for what actually 
 The domain mirrors the distribution systems I build at work: regional price lists, units of measure
 (cartons vs pieces), stock reservation, partial deliveries and payment terms. The engineering focus
 is what makes such a system trustworthy: **no lost events, no double-billing, no overselling, and no
-floating-point money.**
+floating-point money.** A React admin app on top lets you run the whole flow from a browser.
+
+![Dashboard](docs/screenshots/dashboard.png)
 
 ```mermaid
 flowchart LR
-    client([Client / Postman])
+    client([Browser / Postman])
+    web[web<br/>nginx + React<br/>:3000]
 
     subgraph services[" "]
         master[master-service<br/>:8081]
@@ -24,7 +27,8 @@ flowchart LR
 
     mq{{RabbitMQ<br/>salesflow.events}}
 
-    client --> master & order & warehouse & billing
+    client --> web
+    web -- "/api/{service}/…" --> master & order & warehouse & billing
     order -- "POST /internal/quote<br/>(sync pricing)" --> master
 
     order -- order.confirmed --> mq
@@ -80,6 +84,27 @@ sequenceDiagram
 An order moves `DRAFT → CONFIRMED → FULFILLING → DELIVERED → INVOICED`, or ends `REJECTED` (not
 enough stock) or `CANCELLED` (withdrawn as a draft).
 
+## The admin app
+
+| | |
+|---|---|
+| ![New order: salesperson filtered by region, regional prices, cartons converted to pieces](docs/screenshots/new-order.png) | ![Order detail: the timeline moves by itself as events arrive; the invoice covers only delivered goods](docs/screenshots/order-detail.png) |
+| **New order.** Only salespeople covering the customer's region are offered; prices come from that region's list; `5 DUS` shows as `120 PCS`. | **Order detail.** The status timeline advances on its own as warehouse and billing events arrive. One carton was refused, so the invoice is lower than the order. |
+| ![Price matrix: one price per region and unit](docs/screenshots/product-prices.png) | ![Proof of delivery: lower a quantity for damaged or refused goods](docs/screenshots/delivery.png) |
+| **Price matrix.** One price per region and selling unit; click a cell to change it. | **Proof of delivery.** Lower a quantity for damaged or refused goods; only what arrived is billed and the rest returns to stock. |
+
+React 19 + TypeScript + Vite, TanStack Query for server state, Tailwind for styling. A few choices
+worth noting:
+
+- **One origin, no CORS.** The browser only ever calls `/api/<service>/…`. Vite's dev proxy and, in
+  Docker, nginx forward each prefix to its service, so the backend needs no CORS configuration.
+- **Money stays exact in the browser too.** Totals are previewed with integer cents (`bigint`), never
+  floats, so the draft total always matches what the order service computes.
+- **Asynchronous work is visible.** After confirming, the order page polls while an event is due
+  ("Warehouse is reserving stock…") and stops once the order settles.
+- **Master data screens share one component** (`CrudPage`): each page only declares its columns and
+  form fields.
+
 ## Design decisions
 
 **Transactional outbox** ([`pkg/outbox`](pkg/outbox/outbox.go)). Committing to Postgres and publishing
@@ -129,6 +154,8 @@ Requirements: Docker, and Go 1.25+ for the tests.
 
 ```bash
 make up          # build and start everything; waits until all containers are healthy
+make seed        # optional: demo data (3 regions, products, customers, orders in every stage)
+                 # then open http://localhost:3000
 make e2e         # run the end-to-end suite against it
 make down        # stop and delete data
 ```
@@ -137,11 +164,19 @@ Without `make` (e.g. on Windows), run the underlying commands:
 
 ```bash
 docker compose -f deploy/docker-compose.yml up -d --build --wait
+go run ./tools/seed
 go test -tags e2e -count=1 -v ./e2e
 ```
 
-Services listen on `localhost:8081`–`8084`; the RabbitMQ console is at
-<http://localhost:15672> (guest/guest).
+The admin app is at <http://localhost:3000>. Services also listen directly on
+`localhost:8081`–`8084`; the RabbitMQ console is at <http://localhost:15672> (guest/guest), and
+PostgreSQL at `localhost:15432` (salesflow/salesflow, one database per service).
+
+**Frontend development** with hot reload, against the backend from `make up` (Node 22.22+):
+
+```bash
+cd web && npm install && npm run dev    # http://localhost:5173
+```
 
 **Try it:** import [`docs/postman/salesflow.postman_collection.json`](docs/postman/salesflow.postman_collection.json)
 and run it with the Collection Runner. It seeds a region, places and confirms an order, ships it with
@@ -156,9 +191,12 @@ one damaged carton, and checks the invoice. The full API is described in
 | `go test -tags integration ./...` | Plus integration tests against real PostgreSQL and RabbitMQ via [testcontainers](https://golang.testcontainers.org): outbox never publishes rolled-back events, retry/DLQ routing, concurrent reservations |
 | `go test -tags e2e ./e2e` | End-to-end against the running stack: full order-to-cash, stock shortage, cross-region sale, missing price |
 | `E2E_CHAOS=1 go test -tags e2e ./e2e` | Plus chaos tests: billing is stopped during delivery and still invoices once restarted; a replayed `delivery.completed` does not bill twice |
+| `cd web && npm test` | Frontend unit tests: exact money arithmetic and formatting |
 
-CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs lint, the sqlc freshness check,
-unit + integration tests with the race detector, and the e2e and chaos suites against docker compose.
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs Go lint, the sqlc freshness check,
+unit + integration tests with the race detector, frontend lint/typecheck/test/build, and the e2e and
+chaos suites against docker compose, then seeds demo data through the nginx gateway to check the
+frontend container routes to every service.
 
 ## Layout
 
@@ -175,9 +213,13 @@ services/<name>/
   internal/repository/  Postgres implementation (sqlc in sqlcdb/)
   internal/handler/     HTTP and event adapters
   migrations/  queries/
+web/                    React admin app (Vite), served by nginx in Docker
+  src/api/              typed API hooks (TanStack Query)
+  src/pages/            one folder per area: orders, deliveries, warehouse, invoices, master
+tools/seed/             demo data loader
 deploy/                 docker compose
 e2e/                    end-to-end and chaos tests
-docs/                   OpenAPI spec, Postman collection
+docs/                   OpenAPI spec, Postman collection, screenshots
 ```
 
 ## Roadmap
@@ -186,9 +228,11 @@ docs/                   OpenAPI spec, Postman collection
 - **Observability:** OpenTelemetry traces propagated through HTTP *and* RabbitMQ headers (one trace from order to invoice), Prometheus metrics, Grafana
 - **Domain:** corporate customer groups, invoice payments including down payments, order returns and corrections
 - **Shipping:** a shipping service with third-party courier adapters (rate check, pickup, AWB tracking)
-- **Admin UI**
+- **UI tests in CI:** browser tests (Playwright) for the main flows
 
 ## Stack
 
-Go · Echo · PostgreSQL · pgx · sqlc · golang-migrate · RabbitMQ · shopspring/decimal · testify ·
-testcontainers-go · Docker Compose · GitHub Actions · golangci-lint
+**Backend:** Go · Echo · PostgreSQL · pgx · sqlc · golang-migrate · RabbitMQ · shopspring/decimal ·
+testify · testcontainers-go
+**Frontend:** React · TypeScript · Vite · TanStack Query · React Router · Tailwind CSS · Vitest
+**Delivery:** Docker Compose · nginx · GitHub Actions · golangci-lint · ESLint

@@ -51,6 +51,13 @@ type Invoice struct {
 	CreatedAt      time.Time       `json:"created_at"`
 }
 
+// InvoiceFilter narrows an invoice listing; zero values mean "any".
+type InvoiceFilter struct {
+	CustomerID int64
+	OrderID    int64
+	Limit      int
+}
+
 // NewInvoice bills what was actually delivered: each line is charged for its
 // delivered quantity at the price fixed when the order was placed. The invoice
 // is issued on the delivery date (in loc, the business's time zone) and falls

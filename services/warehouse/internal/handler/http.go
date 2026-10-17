@@ -26,6 +26,7 @@ func New(svc *usecase.Service) *Handler { return &Handler{svc: svc} }
 func (h *Handler) Register(e *echo.Echo) {
 	e.POST("/warehouses", h.createWarehouse)
 	e.GET("/warehouses", h.listWarehouses)
+	e.PUT("/warehouses/:id", h.updateWarehouse)
 	e.POST("/warehouses/:id/receipts", h.receive)
 	e.GET("/warehouses/:id/stocks", h.listStocks)
 
@@ -49,6 +50,22 @@ func (h *Handler) createWarehouse(c echo.Context) error {
 
 func (h *Handler) listWarehouses(c echo.Context) error {
 	out, err := h.svc.ListWarehouses(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusOK, out)
+}
+
+func (h *Handler) updateWarehouse(c echo.Context) error {
+	id, err := httpx.ParamID(c, "id")
+	if err != nil {
+		return err
+	}
+	var in domain.Warehouse
+	if err := httpx.Bind(c, &in); err != nil {
+		return err
+	}
+	out, err := h.svc.UpdateWarehouse(c.Request().Context(), id, in)
 	if err != nil {
 		return err
 	}
@@ -89,9 +106,10 @@ func (h *Handler) listStocks(c echo.Context) error {
 }
 
 func (h *Handler) listDeliveries(c echo.Context) error {
-	status := domain.DeliveryStatus(strings.ToUpper(c.QueryParam("status")))
-	limit, _ := strconv.Atoi(c.QueryParam("limit"))
-	out, err := h.svc.ListDeliveries(c.Request().Context(), status, limit)
+	f := domain.DeliveryFilter{Status: domain.DeliveryStatus(strings.ToUpper(c.QueryParam("status")))}
+	f.Limit, _ = strconv.Atoi(c.QueryParam("limit"))
+	f.OrderID, _ = strconv.ParseInt(c.QueryParam("order_id"), 10, 64)
+	out, err := h.svc.ListDeliveries(c.Request().Context(), f)
 	if err != nil {
 		return err
 	}

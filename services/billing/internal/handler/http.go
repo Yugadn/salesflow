@@ -12,6 +12,7 @@ import (
 	"github.com/yugadn/salesflow/pkg/events"
 	"github.com/yugadn/salesflow/pkg/httpx"
 	"github.com/yugadn/salesflow/pkg/rabbit"
+	"github.com/yugadn/salesflow/services/billing/internal/domain"
 	"github.com/yugadn/salesflow/services/billing/internal/usecase"
 )
 
@@ -27,9 +28,11 @@ func (h *Handler) Register(e *echo.Echo) {
 }
 
 func (h *Handler) list(c echo.Context) error {
-	customerID, _ := strconv.ParseInt(c.QueryParam("customer_id"), 10, 64)
-	limit, _ := strconv.Atoi(c.QueryParam("limit"))
-	out, err := h.svc.List(c.Request().Context(), customerID, limit)
+	var f domain.InvoiceFilter
+	f.CustomerID, _ = strconv.ParseInt(c.QueryParam("customer_id"), 10, 64)
+	f.OrderID, _ = strconv.ParseInt(c.QueryParam("order_id"), 10, 64)
+	f.Limit, _ = strconv.Atoi(c.QueryParam("limit"))
+	out, err := h.svc.List(c.Request().Context(), f)
 	if err != nil {
 		return err
 	}

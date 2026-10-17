@@ -69,6 +69,11 @@ func (f *fakeStore) GetWarehouseByRegion(_ context.Context, regionID int64) (dom
 	return domain.Warehouse{}, apperr.NotFound("warehouse_not_found", "warehouse not found")
 }
 
+func (f *fakeStore) UpdateWarehouse(_ context.Context, w domain.Warehouse) (domain.Warehouse, error) {
+	f.warehouses[w.ID] = w
+	return w, nil
+}
+
 func (f *fakeStore) ReceiveStock(_ context.Context, warehouseID, productID, qty int64) (domain.Stock, error) {
 	k := stockKey{warehouseID, productID}
 	s := f.stocks[k]
@@ -142,7 +147,7 @@ func (f *fakeStore) GetDeliveryForUpdate(ctx context.Context, id int64) (domain.
 	return f.GetDelivery(ctx, id)
 }
 
-func (f *fakeStore) ListDeliveries(context.Context, domain.DeliveryStatus, int) ([]domain.Delivery, error) {
+func (f *fakeStore) ListDeliveries(context.Context, domain.DeliveryFilter) ([]domain.Delivery, error) {
 	return nil, nil
 }
 

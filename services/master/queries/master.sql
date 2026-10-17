@@ -65,3 +65,20 @@ SELECT price FROM prices WHERE product_id = $1 AND region_id = $2 AND uom_code =
 SELECT product_id, region_id, uom_code, price FROM prices
 WHERE product_id = $1
 ORDER BY region_id, uom_code;
+
+-- name: UpdateRegion :one
+UPDATE regions SET code = $2, name = $3 WHERE id = $1
+RETURNING id, code, name;
+
+-- name: UpdateCustomer :one
+UPDATE customers SET code = $2, name = $3, region_id = $4, payment_term_days = $5 WHERE id = $1
+RETURNING id, code, name, region_id, payment_term_days;
+
+-- name: UpdateSalesperson :one
+UPDATE salespersons SET code = $2, name = $3, region_id = $4 WHERE id = $1
+RETURNING id, code, name, region_id;
+
+-- The base UoM is deliberately not editable: stock is counted in it.
+-- name: UpdateProduct :one
+UPDATE products SET sku = $2, name = $3 WHERE id = $1
+RETURNING id, sku, name, base_uom;

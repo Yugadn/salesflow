@@ -244,18 +244,20 @@ func (q *Queries) GetWarehouseByRegion(ctx context.Context, regionID int64) (Get
 
 const listDeliveries = `-- name: ListDeliveries :many
 SELECT id, number, order_id, order_number, warehouse_id, customer_id, customer_name, payment_term_days, status, created_at, shipped_at, delivered_at FROM deliveries
-WHERE $2::text IS NULL OR status = $2::text
+WHERE ($2::text IS NULL OR status = $2::text)
+  AND ($3::bigint IS NULL OR order_id = $3::bigint)
 ORDER BY id DESC
 LIMIT $1
 `
 
 type ListDeliveriesParams struct {
-	Limit  int32
-	Status *string
+	Limit   int32
+	Status  *string
+	OrderID *int64
 }
 
 func (q *Queries) ListDeliveries(ctx context.Context, arg ListDeliveriesParams) ([]Delivery, error) {
-	rows, err := q.db.Query(ctx, listDeliveries, arg.Limit, arg.Status)
+	rows, err := q.db.Query(ctx, listDeliveries, arg.Limit, arg.Status, arg.OrderID)
 	if err != nil {
 		return nil, err
 	}
@@ -529,4 +531,35 @@ func (q *Queries) UpdateDelivery(ctx context.Context, arg UpdateDeliveryParams) 
 		arg.DeliveredAt,
 	)
 	return err
+}
+
+const updateWarehouse = `-- name: UpdateWarehouse :one
+UPDATE warehouses SET code = $2, name = $3 WHERE id = $1
+RETURNING id, code, name, region_id
+`
+
+type UpdateWarehouseParams struct {
+	ID   int64
+	Code string
+	Name string
+}
+
+type UpdateWarehouseRow struct {
+	ID       int64
+	Code     string
+	Name     string
+	RegionID int64
+}
+
+// The region is not editable: open delivery orders belong to it.
+func (q *Queries) UpdateWarehouse(ctx context.Context, arg UpdateWarehouseParams) (UpdateWarehouseRow, error) {
+	row := q.db.QueryRow(ctx, updateWarehouse, arg.ID, arg.Code, arg.Name)
+	var i UpdateWarehouseRow
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.Name,
+		&i.RegionID,
+	)
+	return i, err
 }

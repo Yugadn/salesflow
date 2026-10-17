@@ -96,12 +96,15 @@ func (r repo) GetInvoice(ctx context.Context, id int64) (domain.Invoice, error) 
 	return invs[0], nil
 }
 
-func (r repo) ListInvoices(ctx context.Context, customerID int64, limit int) ([]domain.Invoice, error) {
-	var filter *int64
-	if customerID > 0 {
-		filter = &customerID
+func (r repo) ListInvoices(ctx context.Context, f domain.InvoiceFilter) ([]domain.Invoice, error) {
+	params := sqlcdb.ListInvoicesParams{Limit: int32(f.Limit)}
+	if f.CustomerID > 0 {
+		params.CustomerID = &f.CustomerID
 	}
-	rows, err := r.q.ListInvoices(ctx, sqlcdb.ListInvoicesParams{Limit: int32(limit), CustomerID: filter})
+	if f.OrderID > 0 {
+		params.OrderID = &f.OrderID
+	}
+	rows, err := r.q.ListInvoices(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("list invoices: %w", err)
 	}

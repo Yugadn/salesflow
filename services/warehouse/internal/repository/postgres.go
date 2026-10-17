@@ -212,13 +212,16 @@ func (r repo) GetDeliveryForUpdate(ctx context.Context, id int64) (domain.Delive
 	return r.withLines(ctx, toDelivery(row))
 }
 
-func (r repo) ListDeliveries(ctx context.Context, status domain.DeliveryStatus, limit int) ([]domain.Delivery, error) {
-	var filter *string
-	if status != "" {
-		s := string(status)
-		filter = &s
+func (r repo) ListDeliveries(ctx context.Context, f domain.DeliveryFilter) ([]domain.Delivery, error) {
+	params := sqlcdb.ListDeliveriesParams{Limit: int32(f.Limit)}
+	if f.Status != "" {
+		s := string(f.Status)
+		params.Status = &s
 	}
-	rows, err := r.q.ListDeliveries(ctx, sqlcdb.ListDeliveriesParams{Limit: int32(limit), Status: filter})
+	if f.OrderID > 0 {
+		params.OrderID = &f.OrderID
+	}
+	rows, err := r.q.ListDeliveries(ctx, params)
 	if err != nil {
 		return nil, mapErr(err, "delivery")
 	}
@@ -311,4 +314,12 @@ func toDelivery(row sqlcdb.Delivery) domain.Delivery {
 		ShippedAt:       row.ShippedAt,
 		DeliveredAt:     row.DeliveredAt,
 	}
+}
+
+func (r repo) UpdateWarehouse(ctx context.Context, w domain.Warehouse) (domain.Warehouse, error) {
+	row, err := r.q.UpdateWarehouse(ctx, sqlcdb.UpdateWarehouseParams{ID: w.ID, Code: w.Code, Name: w.Name})
+	if err != nil {
+		return domain.Warehouse{}, mapErr(err, "warehouse")
+	}
+	return toWarehouse(row.ID, row.Code, row.Name, row.RegionID), nil
 }

@@ -16,7 +16,8 @@ SELECT * FROM invoices WHERE id = $1;
 
 -- name: ListInvoices :many
 SELECT * FROM invoices
-WHERE sqlc.narg('customer_id')::bigint IS NULL OR customer_id = sqlc.narg('customer_id')::bigint
+WHERE (sqlc.narg('customer_id')::bigint IS NULL OR customer_id = sqlc.narg('customer_id')::bigint)
+  AND (sqlc.narg('order_id')::bigint IS NULL OR order_id = sqlc.narg('order_id')::bigint)
 ORDER BY id DESC
 LIMIT $1;
 

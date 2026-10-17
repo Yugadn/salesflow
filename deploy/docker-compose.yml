@@ -82,5 +82,20 @@ services:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
 
+  web:
+    build: { context: ../web }
+    restart: unless-stopped
+    ports: ["3000:80"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      master: { condition: service_healthy }
+      order: { condition: service_healthy }
+      warehouse: { condition: service_healthy }
+      billing: { condition: service_healthy }
+
 volumes:
   pgdata:

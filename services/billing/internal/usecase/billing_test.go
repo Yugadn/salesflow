@@ -61,7 +61,7 @@ func (f *fakeStore) GetInvoice(_ context.Context, id int64) (domain.Invoice, err
 	return inv, nil
 }
 
-func (f *fakeStore) ListInvoices(context.Context, int64, int) ([]domain.Invoice, error) {
+func (f *fakeStore) ListInvoices(context.Context, domain.InvoiceFilter) ([]domain.Invoice, error) {
 	return nil, nil
 }
 

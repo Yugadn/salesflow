@@ -19,6 +19,8 @@ type Repo interface {
 	ListWarehouses(ctx context.Context) ([]domain.Warehouse, error)
 	GetWarehouse(ctx context.Context, id int64) (domain.Warehouse, error)
 	GetWarehouseByRegion(ctx context.Context, regionID int64) (domain.Warehouse, error)
+	// UpdateWarehouse changes code and name only.
+	UpdateWarehouse(ctx context.Context, w domain.Warehouse) (domain.Warehouse, error)
 
 	ReceiveStock(ctx context.Context, warehouseID, productID, qty int64) (domain.Stock, error)
 	ListStocks(ctx context.Context, warehouseID int64) ([]domain.Stock, error)
@@ -33,7 +35,7 @@ type Repo interface {
 	CreateDelivery(ctx context.Context, d *domain.Delivery) error
 	GetDelivery(ctx context.Context, id int64) (domain.Delivery, error)
 	GetDeliveryForUpdate(ctx context.Context, id int64) (domain.Delivery, error)
-	ListDeliveries(ctx context.Context, status domain.DeliveryStatus, limit int) ([]domain.Delivery, error)
+	ListDeliveries(ctx context.Context, f domain.DeliveryFilter) ([]domain.Delivery, error)
 	// UpdateDelivery persists status, timestamps and delivered quantities.
 	UpdateDelivery(ctx context.Context, d domain.Delivery) error
 
@@ -66,6 +68,24 @@ func (s *Service) ListWarehouses(ctx context.Context) ([]domain.Warehouse, error
 	return s.store.ListWarehouses(ctx)
 }
 
+// UpdateWarehouse renames a warehouse. Its region cannot change: open
+// delivery orders and reserved stock belong to it.
+func (s *Service) UpdateWarehouse(ctx context.Context, id int64, w domain.Warehouse) (domain.Warehouse, error) {
+	current, err := s.store.GetWarehouse(ctx, id)
+	if err != nil {
+		return domain.Warehouse{}, err
+	}
+	if w.RegionID != 0 && w.RegionID != current.RegionID {
+		return domain.Warehouse{}, apperr.Invalid("region_immutable",
+			"warehouse %s serves region %d and cannot be moved", current.Code, current.RegionID)
+	}
+	w.ID, w.RegionID = id, current.RegionID
+	if err := w.Validate(); err != nil {
+		return domain.Warehouse{}, err
+	}
+	return s.store.UpdateWarehouse(ctx, w)
+}
+
 // ReceiveStock books an inbound receipt of qty base units.
 func (s *Service) ReceiveStock(ctx context.Context, warehouseID, productID, qty int64) (domain.Stock, error) {
 	if productID <= 0 || qty <= 0 {
@@ -88,11 +108,11 @@ func (s *Service) GetDelivery(ctx context.Context, id int64) (domain.Delivery, e
 	return s.store.GetDelivery(ctx, id)
 }
 
-func (s *Service) ListDeliveries(ctx context.Context, status domain.DeliveryStatus, limit int) ([]domain.Delivery, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 50
+func (s *Service) ListDeliveries(ctx context.Context, f domain.DeliveryFilter) ([]domain.Delivery, error) {
+	if f.Limit <= 0 || f.Limit > 200 {
+		f.Limit = 50
 	}
-	return s.store.ListDeliveries(ctx, status, limit)
+	return s.store.ListDeliveries(ctx, f)
 }
 
 // Ship marks a delivery as dispatched from the warehouse.

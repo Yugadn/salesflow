@@ -75,7 +75,7 @@ func TestConcurrentReservationsNeverOversell(t *testing.T) {
 		assert.Equal(t, int64(100), s.Reserved, "product %d: reserved exactly what is on hand, never more", s.ProductID)
 	}
 
-	deliveries, err := svc.ListDeliveries(ctx, "", 200)
+	deliveries, err := svc.ListDeliveries(ctx, domain.DeliveryFilter{Limit: 200})
 	require.NoError(t, err)
 	assert.Len(t, deliveries, 10)
 

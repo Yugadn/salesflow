@@ -36,6 +36,12 @@ type Repository interface {
 	UpsertProductUoM(ctx context.Context, productID int64, c domain.ProductUoM) error
 	GetConversionFactor(ctx context.Context, productID int64, uom string) (int64, error)
 
+	UpdateRegion(ctx context.Context, r domain.Region) (domain.Region, error)
+	UpdateCustomer(ctx context.Context, c domain.Customer) (domain.Customer, error)
+	UpdateSalesperson(ctx context.Context, s domain.Salesperson) (domain.Salesperson, error)
+	// UpdateProduct changes SKU and name only.
+	UpdateProduct(ctx context.Context, p domain.Product) (domain.Product, error)
+
 	UpsertPrice(ctx context.Context, p domain.Price) error
 	GetPrice(ctx context.Context, productID, regionID int64, uom string) (decimal.Decimal, error)
 	ListPrices(ctx context.Context, productID int64) ([]domain.Price, error)
@@ -109,6 +115,51 @@ func (s *Service) GetProduct(ctx context.Context, id int64) (domain.Product, err
 
 func (s *Service) ListProducts(ctx context.Context) ([]domain.Product, error) {
 	return s.repo.ListProducts(ctx)
+}
+
+// Updates take effect for new orders only: existing orders keep the snapshot
+// of names, regions and prices taken when they were created.
+
+func (s *Service) UpdateRegion(ctx context.Context, id int64, r domain.Region) (domain.Region, error) {
+	r.ID = id
+	if err := r.Validate(); err != nil {
+		return domain.Region{}, err
+	}
+	return s.repo.UpdateRegion(ctx, r)
+}
+
+func (s *Service) UpdateCustomer(ctx context.Context, id int64, c domain.Customer) (domain.Customer, error) {
+	c.ID = id
+	if err := c.Validate(); err != nil {
+		return domain.Customer{}, err
+	}
+	return s.repo.UpdateCustomer(ctx, c)
+}
+
+func (s *Service) UpdateSalesperson(ctx context.Context, id int64, sp domain.Salesperson) (domain.Salesperson, error) {
+	sp.ID = id
+	if err := sp.Validate(); err != nil {
+		return domain.Salesperson{}, err
+	}
+	return s.repo.UpdateSalesperson(ctx, sp)
+}
+
+// UpdateProduct changes a product's SKU and name. The base UoM cannot change:
+// stock across every warehouse is counted in it.
+func (s *Service) UpdateProduct(ctx context.Context, id int64, p domain.Product) (domain.Product, error) {
+	current, err := s.repo.GetProduct(ctx, id)
+	if err != nil {
+		return domain.Product{}, err
+	}
+	if p.BaseUoM != "" && domain.NormalizeCode(p.BaseUoM) != current.BaseUoM {
+		return domain.Product{}, apperr.Invalid("base_uom_immutable",
+			"base uom of %s is %s and cannot be changed; stock is counted in it", current.SKU, current.BaseUoM)
+	}
+	p.ID, p.BaseUoM = id, current.BaseUoM
+	if err := p.Validate(); err != nil {
+		return domain.Product{}, err
+	}
+	return s.repo.UpdateProduct(ctx, p)
 }
 
 // SetConversion adds or updates how many base units one unit of a UoM holds.

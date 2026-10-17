@@ -147,6 +147,13 @@ func NewDelivery(warehouseID int64, o events.OrderConfirmedPayload) Delivery {
 	return d
 }
 
+// DeliveryFilter narrows a delivery listing; zero values mean "any".
+type DeliveryFilter struct {
+	Status  DeliveryStatus
+	OrderID int64
+	Limit   int
+}
+
 // Ship marks the goods as having left the warehouse.
 func (d *Delivery) Ship(now time.Time) error {
 	if d.Status != DeliveryPending {

@@ -246,14 +246,10 @@ func TestOrderToCash(t *testing.T) {
 	assert.Equal(t, stock{ProductID: w.productID, OnHand: 100, Reserved: 54}, w.stock(t))
 
 	var deliveries []delivery
-	mustCall(t, http.StatusOK, http.MethodGet, warehouseURL+"/deliveries?limit=200", nil, &deliveries)
-	var d delivery
-	for _, x := range deliveries {
-		if x.OrderID == o.ID {
-			d = x
-		}
-	}
-	require.NotZero(t, d.ID, "delivery for order %d", o.ID)
+	mustCall(t, http.StatusOK, http.MethodGet, fmt.Sprintf("%s/deliveries?order_id=%d", warehouseURL, o.ID), nil, &deliveries)
+	require.Len(t, deliveries, 1, "exactly one delivery for order %d", o.ID)
+	d := deliveries[0]
+	require.Equal(t, o.ID, d.OrderID)
 	require.Equal(t, "PENDING", d.Status)
 
 	// ship, then deliver with one carton damaged in transit
@@ -269,7 +265,7 @@ func TestOrderToCash(t *testing.T) {
 	require.NotEmpty(t, o.InvoiceNumber)
 
 	var invoices []invoice
-	mustCall(t, http.StatusOK, http.MethodGet, fmt.Sprintf("%s/invoices?customer_id=%d", billingURL, w.customerID), nil, &invoices)
+	mustCall(t, http.StatusOK, http.MethodGet, fmt.Sprintf("%s/invoices?order_id=%d", billingURL, o.ID), nil, &invoices)
 	require.Len(t, invoices, 1)
 	inv := invoices[0]
 	assert.Equal(t, o.InvoiceNumber, inv.Number)
@@ -322,4 +318,42 @@ func TestOrderNeedsAPriceForTheCustomerRegion(t *testing.T) {
 	assert.Equal(t, http.StatusUnprocessableEntity, status)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, "price_not_set", apiErr.Code)
+}
+
+func TestMasterDataCanBeEdited(t *testing.T) {
+	w := newWorld(t, 0)
+
+	var c struct {
+		Name            string `json:"name"`
+		PaymentTermDays int    `json:"payment_term_days"`
+	}
+	mustCall(t, http.StatusOK, http.MethodPut, fmt.Sprintf("%s/customers/%d", masterURL, w.customerID),
+		map[string]any{"code": fmt.Sprintf("C-EDIT-%d", w.customerID), "name": "Toko Maju Jaya", "region_id": w.regionID, "payment_term_days": 45}, &c)
+	assert.Equal(t, "Toko Maju Jaya", c.Name)
+	assert.Equal(t, 45, c.PaymentTermDays)
+
+	var p struct {
+		Name    string `json:"name"`
+		BaseUoM string `json:"base_uom"`
+	}
+	mustCall(t, http.StatusOK, http.MethodPut, fmt.Sprintf("%s/products/%d", masterURL, w.productID),
+		map[string]any{"sku": fmt.Sprintf("TEA-EDIT-%d", w.productID), "name": "Teh Botol 350 ml"}, &p)
+	assert.Equal(t, "Teh Botol 350 ml", p.Name)
+	assert.Equal(t, "PCS", p.BaseUoM, "base unit is kept when omitted")
+
+	status, apiErr := call(t, http.MethodPut, fmt.Sprintf("%s/products/%d", masterURL, w.productID),
+		map[string]any{"sku": "X", "name": "X", "base_uom": "DUS"}, nil)
+	assert.Equal(t, http.StatusUnprocessableEntity, status)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, "base_uom_immutable", apiErr.Code)
+
+	status, apiErr = call(t, http.MethodPut, fmt.Sprintf("%s/warehouses/%d", warehouseURL, w.warehouseID),
+		map[string]any{"code": "X", "name": "X", "region_id": w.regionID + 1}, nil)
+	assert.Equal(t, http.StatusUnprocessableEntity, status)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, "region_immutable", apiErr.Code)
+
+	status, _ = call(t, http.MethodPut, masterURL+"/customers/999999999",
+		map[string]any{"code": "X", "name": "X", "region_id": w.regionID, "payment_term_days": 0}, nil)
+	assert.Equal(t, http.StatusNotFound, status)
 }

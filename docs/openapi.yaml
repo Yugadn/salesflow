@@ -43,6 +43,24 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/RegionList" }
 
+  /regions/{id}:
+    servers: [{ url: http://localhost:8081 }]
+    put:
+      tags: [master]
+      summary: Update a region
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Region" }
+            example: { code: JKT, name: DKI Jakarta }
+      responses:
+        "200": { description: OK }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
   /customers:
     servers: [{ url: http://localhost:8081 }]
     post:
@@ -77,6 +95,22 @@ paths:
       responses:
         "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/CustomerData" } } } }
         "404": { $ref: "#/components/responses/Error" }
+    put:
+      tags: [master]
+      summary: Update a customer
+      description: Existing orders keep the customer snapshot taken when they were created.
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Customer" }
+            example: { code: C-001, name: Toko Maju Jaya, region_id: 1, payment_term_days: 45 }
+      responses:
+        "200": { description: OK }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
 
   /salespersons:
     servers: [{ url: http://localhost:8081 }]
@@ -104,6 +138,24 @@ paths:
           content:
             application/json:
               schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Salesperson" } } } }
+
+  /salespersons/{id}:
+    servers: [{ url: http://localhost:8081 }]
+    put:
+      tags: [master]
+      summary: Update a salesperson
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Salesperson" }
+            example: { code: S-001, name: Andi Wijaya, region_id: 1 }
+      responses:
+        "200": { description: OK }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
 
   /uoms:
     servers: [{ url: http://localhost:8081 }]
@@ -164,6 +216,22 @@ paths:
       responses:
         "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/ProductData" } } } }
         "404": { $ref: "#/components/responses/Error" }
+    put:
+      tags: [master]
+      summary: Update a product (SKU and name)
+      description: "`base_uom` cannot change (`base_uom_immutable`): stock is counted in it."
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProductInput" }
+            example: { sku: TEA-350, name: Teh Botol 350 ml }
+      responses:
+        "200": { description: OK }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
 
   /products/{id}/uoms:
     servers: [{ url: http://localhost:8081 }]
@@ -324,6 +392,25 @@ paths:
             application/json:
               schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Warehouse" } } } }
 
+  /warehouses/{id}:
+    servers: [{ url: http://localhost:8083 }]
+    put:
+      tags: [warehouse]
+      summary: Rename a warehouse
+      description: "The region cannot change (`region_immutable`): open deliveries and reserved stock belong to it."
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Warehouse" }
+            example: { code: WH-JKT, name: Gudang Jakarta Barat }
+      responses:
+        "200": { description: OK }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
   /warehouses/{id}/receipts:
     servers: [{ url: http://localhost:8083 }]
     post:
@@ -367,6 +454,7 @@ paths:
       summary: List delivery orders
       parameters:
         - { name: status, in: query, schema: { type: string, enum: [PENDING, SHIPPED, DELIVERED] } }
+        - { name: order_id, in: query, schema: { type: integer, format: int64 } }
         - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
       responses:
         "200":
@@ -436,6 +524,7 @@ paths:
       summary: List invoices
       parameters:
         - { name: customer_id, in: query, schema: { type: integer, format: int64 } }
+        - { name: order_id, in: query, schema: { type: integer, format: int64 } }
         - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
       responses:
         "200":

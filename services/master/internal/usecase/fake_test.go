@@ -138,3 +138,37 @@ func (f *fakeRepo) GetPrice(_ context.Context, productID, regionID int64, uom st
 }
 
 func (f *fakeRepo) ListPrices(context.Context, int64) ([]domain.Price, error) { return nil, nil }
+
+func (f *fakeRepo) UpdateRegion(_ context.Context, r domain.Region) (domain.Region, error) {
+	if _, ok := f.regions[r.ID]; !ok {
+		return domain.Region{}, apperr.NotFound("region_not_found", "region not found")
+	}
+	f.regions[r.ID] = r
+	return r, nil
+}
+
+func (f *fakeRepo) UpdateCustomer(_ context.Context, c domain.Customer) (domain.Customer, error) {
+	if _, ok := f.customers[c.ID]; !ok {
+		return domain.Customer{}, apperr.NotFound("customer_not_found", "customer not found")
+	}
+	f.customers[c.ID] = c
+	return c, nil
+}
+
+func (f *fakeRepo) UpdateSalesperson(_ context.Context, s domain.Salesperson) (domain.Salesperson, error) {
+	if _, ok := f.salespersons[s.ID]; !ok {
+		return domain.Salesperson{}, apperr.NotFound("salesperson_not_found", "salesperson not found")
+	}
+	f.salespersons[s.ID] = s
+	return s, nil
+}
+
+func (f *fakeRepo) UpdateProduct(_ context.Context, p domain.Product) (domain.Product, error) {
+	cur, ok := f.products[p.ID]
+	if !ok {
+		return domain.Product{}, apperr.NotFound("product_not_found", "product not found")
+	}
+	cur.SKU, cur.Name = p.SKU, p.Name
+	f.products[p.ID] = cur
+	return cur, nil
+}

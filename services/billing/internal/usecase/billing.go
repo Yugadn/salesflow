@@ -19,7 +19,7 @@ type Repo interface {
 	InvoiceExistsForDelivery(ctx context.Context, deliveryID int64) (bool, error)
 	CreateInvoice(ctx context.Context, inv *domain.Invoice) error
 	GetInvoice(ctx context.Context, id int64) (domain.Invoice, error)
-	ListInvoices(ctx context.Context, customerID int64, limit int) ([]domain.Invoice, error)
+	ListInvoices(ctx context.Context, f domain.InvoiceFilter) ([]domain.Invoice, error)
 	Emit(ctx context.Context, env events.Envelope) error
 	MarkProcessed(ctx context.Context, eventID, eventType string) (bool, error)
 }
@@ -42,11 +42,11 @@ func (s *Service) Get(ctx context.Context, id int64) (domain.Invoice, error) {
 	return s.store.GetInvoice(ctx, id)
 }
 
-func (s *Service) List(ctx context.Context, customerID int64, limit int) ([]domain.Invoice, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 50
+func (s *Service) List(ctx context.Context, f domain.InvoiceFilter) ([]domain.Invoice, error) {
+	if f.Limit <= 0 || f.Limit > 200 {
+		f.Limit = 50
 	}
-	return s.store.ListInvoices(ctx, customerID, limit)
+	return s.store.ListInvoices(ctx, f)
 }
 
 // HandleEvent issues an invoice when a delivery is completed. Two guards

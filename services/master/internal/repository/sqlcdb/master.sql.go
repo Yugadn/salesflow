@@ -480,6 +480,137 @@ func (q *Queries) ListUoMs(ctx context.Context) ([]Uom, error) {
 	return items, nil
 }
 
+const updateCustomer = `-- name: UpdateCustomer :one
+UPDATE customers SET code = $2, name = $3, region_id = $4, payment_term_days = $5 WHERE id = $1
+RETURNING id, code, name, region_id, payment_term_days
+`
+
+type UpdateCustomerParams struct {
+	ID              int64
+	Code            string
+	Name            string
+	RegionID        int64
+	PaymentTermDays int32
+}
+
+type UpdateCustomerRow struct {
+	ID              int64
+	Code            string
+	Name            string
+	RegionID        int64
+	PaymentTermDays int32
+}
+
+func (q *Queries) UpdateCustomer(ctx context.Context, arg UpdateCustomerParams) (UpdateCustomerRow, error) {
+	row := q.db.QueryRow(ctx, updateCustomer,
+		arg.ID,
+		arg.Code,
+		arg.Name,
+		arg.RegionID,
+		arg.PaymentTermDays,
+	)
+	var i UpdateCustomerRow
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.Name,
+		&i.RegionID,
+		&i.PaymentTermDays,
+	)
+	return i, err
+}
+
+const updateProduct = `-- name: UpdateProduct :one
+UPDATE products SET sku = $2, name = $3 WHERE id = $1
+RETURNING id, sku, name, base_uom
+`
+
+type UpdateProductParams struct {
+	ID   int64
+	Sku  string
+	Name string
+}
+
+type UpdateProductRow struct {
+	ID      int64
+	Sku     string
+	Name    string
+	BaseUom string
+}
+
+// The base UoM is deliberately not editable: stock is counted in it.
+func (q *Queries) UpdateProduct(ctx context.Context, arg UpdateProductParams) (UpdateProductRow, error) {
+	row := q.db.QueryRow(ctx, updateProduct, arg.ID, arg.Sku, arg.Name)
+	var i UpdateProductRow
+	err := row.Scan(
+		&i.ID,
+		&i.Sku,
+		&i.Name,
+		&i.BaseUom,
+	)
+	return i, err
+}
+
+const updateRegion = `-- name: UpdateRegion :one
+UPDATE regions SET code = $2, name = $3 WHERE id = $1
+RETURNING id, code, name
+`
+
+type UpdateRegionParams struct {
+	ID   int64
+	Code string
+	Name string
+}
+
+type UpdateRegionRow struct {
+	ID   int64
+	Code string
+	Name string
+}
+
+func (q *Queries) UpdateRegion(ctx context.Context, arg UpdateRegionParams) (UpdateRegionRow, error) {
+	row := q.db.QueryRow(ctx, updateRegion, arg.ID, arg.Code, arg.Name)
+	var i UpdateRegionRow
+	err := row.Scan(&i.ID, &i.Code, &i.Name)
+	return i, err
+}
+
+const updateSalesperson = `-- name: UpdateSalesperson :one
+UPDATE salespersons SET code = $2, name = $3, region_id = $4 WHERE id = $1
+RETURNING id, code, name, region_id
+`
+
+type UpdateSalespersonParams struct {
+	ID       int64
+	Code     string
+	Name     string
+	RegionID int64
+}
+
+type UpdateSalespersonRow struct {
+	ID       int64
+	Code     string
+	Name     string
+	RegionID int64
+}
+
+func (q *Queries) UpdateSalesperson(ctx context.Context, arg UpdateSalespersonParams) (UpdateSalespersonRow, error) {
+	row := q.db.QueryRow(ctx, updateSalesperson,
+		arg.ID,
+		arg.Code,
+		arg.Name,
+		arg.RegionID,
+	)
+	var i UpdateSalespersonRow
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.Name,
+		&i.RegionID,
+	)
+	return i, err
+}
+
 const upsertPrice = `-- name: UpsertPrice :exec
 INSERT INTO prices (product_id, region_id, uom_code, price) VALUES ($1, $2, $3, $4)
 ON CONFLICT (product_id, region_id, uom_code)
