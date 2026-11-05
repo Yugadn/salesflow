@@ -193,18 +193,20 @@ func (q *Queries) ListOrderLines(ctx context.Context, orderIds []int64) ([]Order
 
 const listOrders = `-- name: ListOrders :many
 SELECT id, number, status, customer_id, customer_code, customer_name, region_id, payment_term_days, salesperson_id, salesperson_name, total, reject_reason, invoice_number, created_at, updated_at, confirmed_at FROM orders
-WHERE $2::text IS NULL OR status = $2::text
+WHERE ($2::text IS NULL OR status = $2::text)
+  AND ($3::bigint IS NULL OR salesperson_id = $3::bigint)
 ORDER BY id DESC
 LIMIT $1
 `
 
 type ListOrdersParams struct {
-	Limit  int32
-	Status *string
+	Limit         int32
+	Status        *string
+	SalespersonID *int64
 }
 
 func (q *Queries) ListOrders(ctx context.Context, arg ListOrdersParams) ([]Order, error) {
-	rows, err := q.db.Query(ctx, listOrders, arg.Limit, arg.Status)
+	rows, err := q.db.Query(ctx, listOrders, arg.Limit, arg.Status, arg.SalespersonID)
 	if err != nil {
 		return nil, err
 	}

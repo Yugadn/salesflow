@@ -6,6 +6,8 @@ import type { Product } from "../../api/types";
 import { Button, Card, EmptyState, ErrorBanner, Field, Input, Money, PageHeader, QueryState, Select, Table, Td } from "../../components/ui";
 import { num } from "../../components/head";
 import { isValidPrice } from "../../lib/money";
+import { can } from "../../lib/permissions";
+import { useSession } from "../../lib/session";
 
 export function ProductDetailPage() {
   const id = Number(useParams().id);
@@ -35,6 +37,7 @@ export function ProductDetailPage() {
 }
 
 function Conversions({ product }: { product: Product }) {
+  const canEdit = can.editMasterData(useSession()?.user);
   const uoms = useUoMs();
   const save = useSetConversion(product.id);
   const [uom, setUom] = useState("");
@@ -56,6 +59,7 @@ function Conversions({ product }: { product: Product }) {
           </tr>
         ))}
       </Table>
+      {canEdit && (
       <form onSubmit={submit} className="space-y-3 border-t border-slate-200 p-4">
         <p className="text-sm font-medium text-slate-700">Add or change a unit</p>
         <div className="grid grid-cols-2 gap-3">
@@ -80,11 +84,13 @@ function Conversions({ product }: { product: Product }) {
           Save unit
         </Button>
       </form>
+      )}
     </Card>
   );
 }
 
 function PriceMatrix({ product }: { product: Product }) {
+  const canEdit = can.editMasterData(useSession()?.user);
   const regions = useRegions();
   const prices = usePrices(product.id);
   const save = useSetPrice(product.id);
@@ -120,9 +126,10 @@ function PriceMatrix({ product }: { product: Product }) {
                     <Td key={u.uom} numeric>
                       <button
                         type="button"
+                        disabled={!canEdit}
                         onClick={() => pick(r.id, u.uom)}
                         className={
-                          "rounded px-1.5 py-0.5 hover:bg-indigo-50 " + (selected ? "bg-indigo-100 ring-1 ring-indigo-300" : "")
+                          "rounded px-1.5 py-0.5 enabled:hover:bg-indigo-50 " + (selected ? "bg-indigo-100 ring-1 ring-indigo-300" : "")
                         }
                         aria-label={`Set price for ${r.name} per ${u.uom}`}
                       >
@@ -136,6 +143,7 @@ function PriceMatrix({ product }: { product: Product }) {
           </Table>
         )}
       </QueryState>
+      {canEdit && (
       <form onSubmit={submit} className="space-y-3 border-t border-slate-200 p-4">
         <p className="text-sm font-medium text-slate-700">Set a price</p>
         <p className="text-xs text-slate-500">Click a cell above, or choose below. Orders already placed keep their original price.</p>
@@ -181,6 +189,7 @@ function PriceMatrix({ product }: { product: Product }) {
           Save price
         </Button>
       </form>
+      )}
     </Card>
   );
 }

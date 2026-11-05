@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/yugadn/salesflow/pkg/apperr"
+	"github.com/yugadn/salesflow/pkg/auth"
 	"github.com/yugadn/salesflow/pkg/events"
 	"github.com/yugadn/salesflow/pkg/httpx"
 	"github.com/yugadn/salesflow/pkg/rabbit"
@@ -24,16 +25,18 @@ type Handler struct {
 func New(svc *usecase.Service) *Handler { return &Handler{svc: svc} }
 
 func (h *Handler) Register(e *echo.Echo) {
-	e.POST("/warehouses", h.createWarehouse)
-	e.GET("/warehouses", h.listWarehouses)
-	e.PUT("/warehouses/:id", h.updateWarehouse)
-	e.POST("/warehouses/:id/receipts", h.receive)
-	e.GET("/warehouses/:id/stocks", h.listStocks)
+	read, work := auth.AnyRole, auth.AdminOrStorage
 
-	e.GET("/deliveries", h.listDeliveries)
-	e.GET("/deliveries/:id", h.getDelivery)
-	e.POST("/deliveries/:id/ship", h.ship)
-	e.POST("/deliveries/:id/deliver", h.deliver)
+	e.POST("/warehouses", h.createWarehouse, work)
+	e.GET("/warehouses", h.listWarehouses, read)
+	e.PUT("/warehouses/:id", h.updateWarehouse, work)
+	e.POST("/warehouses/:id/receipts", h.receive, work)
+	e.GET("/warehouses/:id/stocks", h.listStocks, read)
+
+	e.GET("/deliveries", h.listDeliveries, read)
+	e.GET("/deliveries/:id", h.getDelivery, read)
+	e.POST("/deliveries/:id/ship", h.ship, work)
+	e.POST("/deliveries/:id/deliver", h.deliver, work)
 }
 
 func (h *Handler) createWarehouse(c echo.Context) error {

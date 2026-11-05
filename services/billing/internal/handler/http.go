@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/yugadn/salesflow/pkg/apperr"
+	"github.com/yugadn/salesflow/pkg/auth"
 	"github.com/yugadn/salesflow/pkg/events"
 	"github.com/yugadn/salesflow/pkg/httpx"
 	"github.com/yugadn/salesflow/pkg/rabbit"
@@ -23,8 +24,8 @@ type Handler struct {
 func New(svc *usecase.Service) *Handler { return &Handler{svc: svc} }
 
 func (h *Handler) Register(e *echo.Echo) {
-	e.GET("/invoices", h.list)
-	e.GET("/invoices/:id", h.get)
+	e.GET("/invoices", h.list, auth.AdminOnly)
+	e.GET("/invoices/:id", h.get, auth.AdminOnly)
 }
 
 func (h *Handler) list(c echo.Context) error {

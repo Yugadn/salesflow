@@ -7,6 +7,8 @@ import { OrderStatusBadge } from "../../components/StatusBadge";
 import { Card, EmptyState, Money, PageHeader, QueryState, Table, Td } from "../../components/ui";
 import { num } from "../../components/head";
 import { formatDate } from "../../lib/format";
+import { can } from "../../lib/permissions";
+import { useSession } from "../../lib/session";
 
 const filters: { label: string; status?: OrderStatus }[] = [
   { label: "All" },
@@ -22,18 +24,21 @@ export function OrdersPage() {
   const [params, setParams] = useSearchParams();
   const status = (params.get("status") ?? undefined) as OrderStatus | undefined;
   const orders = useOrders(status);
+  const canSell = can.sell(useSession()?.user);
 
   return (
     <>
       <PageHeader
         title="Sales orders"
         actions={
+          canSell && (
           <Link
             to="/orders/new"
             className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
           >
             <Plus className="size-4" aria-hidden /> New order
           </Link>
+          )
         }
       />
       <div className="mb-4 flex flex-wrap gap-1" role="tablist" aria-label="Filter by status">

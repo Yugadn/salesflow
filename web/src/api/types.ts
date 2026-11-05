@@ -87,7 +87,8 @@ export interface Order {
 
 export interface CreateOrderInput {
   customer_id: number;
-  salesperson_id: number;
+  /** Omitted by sales users: the order is theirs. */
+  salesperson_id?: number;
   lines: { product_id: number; uom: string; qty: number }[];
 }
 
@@ -162,4 +163,26 @@ export interface Invoice {
   total: Money;
   lines: InvoiceLine[];
   created_at: string;
+}
+
+// ---- auth
+export type Role = "admin" | "sales" | "warehouse";
+
+export interface User {
+  id: number;
+  email: string;
+  name: string;
+  role: Role;
+  salesperson_id?: number;
+  active: boolean;
+  created_at: string;
+}
+
+export interface UserInput {
+  email?: string;
+  name: string;
+  password?: string;
+  role: Role;
+  salesperson_id?: number;
+  active?: boolean;
 }

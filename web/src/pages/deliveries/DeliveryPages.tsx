@@ -6,6 +6,8 @@ import type { Delivery, DeliveryStatus } from "../../api/types";
 import { DeliveryStatusBadge } from "../../components/StatusBadge";
 import { Button, Card, EmptyState, ErrorBanner, Input, PageHeader, QueryState, Table, Td } from "../../components/ui";
 import { formatDate } from "../../lib/format";
+import { can } from "../../lib/permissions";
+import { useSession } from "../../lib/session";
 
 const filters: { label: string; status?: DeliveryStatus }[] = [
   { label: "All" },
@@ -88,7 +90,8 @@ function DeliveryView({ delivery }: { delivery: Delivery }) {
     Object.fromEntries(delivery.lines.map((l) => [l.line_no, String(l.ordered_qty)])),
   );
   const warehouse = warehouses.data?.find((w) => w.id === delivery.warehouse_id);
-  const canDeliver = delivery.status === "SHIPPED";
+  const canWork = can.workStock(useSession()?.user);
+  const canDeliver = canWork && delivery.status === "SHIPPED";
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -118,7 +121,8 @@ function DeliveryView({ delivery }: { delivery: Delivery }) {
           </>
         }
         actions={
-          delivery.status === "PENDING" && (
+          delivery.status === "PENDING" &&
+          canWork && (
             <Button loading={ship.isPending} onClick={() => ship.mutate()}>
               Mark as shipped
             </Button>

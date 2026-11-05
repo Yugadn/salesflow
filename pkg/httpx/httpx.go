@@ -149,6 +149,12 @@ func errorHandler(log *slog.Logger) echo.HTTPErrorHandler {
 				status = http.StatusNotFound
 			case apperr.KindConflict:
 				status = http.StatusConflict
+			case apperr.KindUnauthorized:
+				status = http.StatusUnauthorized
+			case apperr.KindForbidden:
+				status = http.StatusForbidden
+			case apperr.KindUnavailable:
+				status = http.StatusServiceUnavailable
 			}
 		} else if errors.As(err, &he) {
 			status = he.Code

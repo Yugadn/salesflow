@@ -3,7 +3,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
+import { session, type Session } from "../lib/session";
 import type {
   CreateOrderInput,
   Customer,
@@ -19,6 +20,8 @@ import type {
   Salesperson,
   Stock,
   UoM,
+  User,
+  UserInput,
   Warehouse,
 } from "./types";
 
@@ -38,11 +41,31 @@ export const keys = {
   delivery: (id: number) => ["deliveries", id] as const,
   invoices: ["invoices"] as const,
   invoice: (id: number) => ["invoices", id] as const,
+  users: ["users"] as const,
 };
 
 const qs = (params: Record<string, string | number | undefined>) => {
   const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== "");
   return entries.length ? "?" + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString() : "";
+};
+
+// ---------------------------------------------------------------- auth
+
+export const useLogin = () =>
+  useMutation({
+    mutationFn: (c: { email: string; password: string }) => api.post<Session>("auth", "/login", c),
+    onSuccess: (s) => session.set(s),
+  });
+
+export const useUsers = () => useQuery({ queryKey: keys.users, queryFn: () => api.get<User[]>("auth", "/users") });
+
+export const useSaveUser = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: UserInput & { id?: number }) =>
+      id ? api.put<User>("auth", `/users/${id}`, body) : api.post<User>("auth", "/users", body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.users }),
+  });
 };
 
 // ---------------------------------------------------------------- master
@@ -194,10 +217,18 @@ export const useOrder = (id: number) =>
     refetchInterval: (q) => (q.state.data ? orderPollInterval(q.state.data.status) : false),
   });
 
-export const useCreateOrder = () => {
+/**
+ * Creates an order. idempotencyKey identifies one filled-in form: submitting
+ * it twice (a double click, a retry after a timeout) returns the same order.
+ */
+export const useCreateOrder = (idempotencyKey: string) => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: CreateOrderInput) => api.post<Order>("order", "/orders", input),
+    mutationFn: (input: CreateOrderInput) => api.post<Order>("order", "/orders", input, { "Idempotency-Key": idempotencyKey }),
+    // A resend that overtakes the first attempt is told "still in progress";
+    // asking again shortly returns the order the first attempt created.
+    retry: (count, err) => count < 5 && err instanceof ApiError && err.code === "request_in_progress",
+    retryDelay: 400,
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.orders }),
   });
 };
@@ -215,10 +246,11 @@ export const useOrderAction = (id: number, action: "confirm" | "cancel") => {
 
 // ---------------------------------------------------------------- billing
 
-export const useInvoices = (filter: { customer_id?: number; order_id?: number } = {}) =>
+export const useInvoices = (filter: { customer_id?: number; order_id?: number } = {}, enabled = true) =>
   useQuery({
     queryKey: [...keys.invoices, filter],
     queryFn: () => api.get<Invoice[]>("billing", "/invoices" + qs({ limit: 200, ...filter })),
+    enabled,
   });
 
 export const useInvoice = (id: number) =>

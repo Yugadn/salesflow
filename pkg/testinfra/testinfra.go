@@ -11,6 +11,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	tcrabbit "github.com/testcontainers/testcontainers-go/modules/rabbitmq"
+	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
@@ -43,6 +44,19 @@ func RabbitMQ(t *testing.T) string {
 	t.Cleanup(func() { _ = testcontainers.TerminateContainer(c) })
 
 	url, err := c.AmqpURL(ctx)
+	require.NoError(t, err)
+	return url
+}
+
+// Redis starts a Redis container and returns its redis:// URL.
+func Redis(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+	c, err := tcredis.Run(ctx, "redis:8-alpine")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = testcontainers.TerminateContainer(c) })
+
+	url, err := c.ConnectionString(ctx)
 	require.NoError(t, err)
 	return url
 }

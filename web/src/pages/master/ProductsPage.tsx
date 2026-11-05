@@ -4,14 +4,19 @@ import { Link } from "react-router";
 import { useProducts, useSaveProduct, useUoMs } from "../../api/hooks";
 import type { Product } from "../../api/types";
 import { CrudPage } from "../../components/CrudPage";
+import { can } from "../../lib/permissions";
+import { useSession } from "../../lib/session";
 
 export function ProductsPage() {
   const uoms = useUoMs();
+  const canEdit = can.editMasterData(useSession()?.user);
   return (
     <CrudPage<Product>
       title="Products"
       description="Stock is counted in each product's base unit. Open a product to set its other units and regional prices."
       noun="product"
+      canCreate={canEdit}
+      editable={canEdit}
       query={useProducts()}
       save={useSaveProduct()}
       rowKey={(p) => p.id}

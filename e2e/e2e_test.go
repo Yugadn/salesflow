@@ -1,9 +1,10 @@
 //go:build e2e
 
-// Package e2e drives the running stack (docker compose) over HTTP and checks
-// the whole order-to-cash flow across all four services.
+// Package e2e drives the running stack (docker compose) through its public
+// entry point, nginx -> KrakenD gateway -> services, exactly as a client
+// would: every request is authenticated with a real token from auth-service.
 //
-//	docker compose -f deploy/docker-compose.yml up -d --build
+//	docker compose -f deploy/docker-compose.yml up -d --build --wait
 //	go test -tags e2e -v ./e2e
 package e2e
 
@@ -14,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,10 +24,15 @@ import (
 )
 
 var (
-	masterURL    = env("MASTER_URL", "http://localhost:8081")
-	orderURL     = env("ORDER_URL", "http://localhost:8082")
-	warehouseURL = env("WAREHOUSE_URL", "http://localhost:8083")
-	billingURL   = env("BILLING_URL", "http://localhost:8084")
+	apiURL       = env("API_URL", "http://localhost:3000/api")
+	authURL      = apiURL + "/auth"
+	masterURL    = apiURL + "/master"
+	orderURL     = apiURL + "/order"
+	warehouseURL = apiURL + "/warehouse"
+	billingURL   = apiURL + "/billing"
+
+	adminEmail    = env("ADMIN_EMAIL", "admin@salesflow.local")
+	adminPassword = env("ADMIN_PASSWORD", "admin12345")
 )
 
 func env(key, def string) string {
@@ -42,9 +49,10 @@ type apiError struct {
 	Message string `json:"message"`
 }
 
-// call sends body as JSON and decodes {"data": ...} into out. It returns the
-// status code and, for error responses, the decoded error.
-func call(t *testing.T, method, url string, body, out any) (int, *apiError) {
+// request sends body as JSON with token and decodes {"data": ...} into out.
+// It returns the status, the decoded error for error responses (nil when the
+// gateway rejected the call with an empty body), and the response headers.
+func request(t *testing.T, token, method, url string, body, out any, headers map[string]string) (int, *apiError, http.Header) {
 	t.Helper()
 	var r io.Reader
 	if body != nil {
@@ -55,19 +63,37 @@ func call(t *testing.T, method, url string, body, out any) (int, *apiError) {
 	req, err := http.NewRequest(method, url, r)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err, "is the stack running? docker compose -f deploy/docker-compose.yml up -d")
+	require.NoError(t, err, "is the stack running? docker compose -f deploy/docker-compose.yml up -d --wait")
 	defer func() { _ = resp.Body.Close() }()
 
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return resp.StatusCode, nil, resp.Header
+	}
 	var envelope struct {
 		Data  json.RawMessage `json:"data"`
 		Error *apiError       `json:"error"`
 	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&envelope), "%s %s", method, url)
+	require.NoError(t, json.Unmarshal(raw, &envelope), "%s %s: %s", method, url, raw)
 	if out != nil && envelope.Data != nil {
 		require.NoError(t, json.Unmarshal(envelope.Data, out))
 	}
-	return resp.StatusCode, envelope.Error
+	return resp.StatusCode, envelope.Error, resp.Header
+}
+
+// call runs a request as the administrator.
+func call(t *testing.T, method, url string, body, out any) (int, *apiError) {
+	t.Helper()
+	status, apiErr, _ := request(t, adminToken(t), method, url, body, out, nil)
+	return status, apiErr
 }
 
 // mustCall fails the test unless the response status is want.
@@ -76,6 +102,41 @@ func mustCall(t *testing.T, want int, method, url string, body, out any) {
 	status, apiErr := call(t, method, url, body, out)
 	require.Equal(t, want, status, "%s %s -> %+v", method, url, apiErr)
 }
+
+// ---- sign-in -----------------------------------------------------------------
+
+var (
+	tokenMu sync.Mutex
+	tokens  = map[string]string{}
+)
+
+// login signs in once per email and caches the token. Sign-in is rate-limited
+// per client IP, so on 429 it waits for the limiter to refill instead of
+// failing (relevant when the suite is re-run within a minute).
+func login(t *testing.T, email, password string) string {
+	t.Helper()
+	tokenMu.Lock()
+	defer tokenMu.Unlock()
+	if tok, ok := tokens[email]; ok {
+		return tok
+	}
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		var s struct {
+			Token string `json:"token"`
+		}
+		status, apiErr, _ := request(t, "", http.MethodPost, authURL+"/login", map[string]string{"email": email, "password": password}, &s, nil)
+		if status == http.StatusOK {
+			tokens[email] = s.Token
+			return s.Token
+		}
+		require.Equal(t, http.StatusTooManyRequests, status, "login %s: %+v", email, apiErr)
+		require.True(t, time.Now().Before(deadline), "still rate-limited after 90s")
+		time.Sleep(3 * time.Second)
+	}
+}
+
+func adminToken(t *testing.T) string { return login(t, adminEmail, adminPassword) }
 
 // eventually polls cond until it holds or the timeout expires.
 func eventually(t *testing.T, what string, cond func() bool) {

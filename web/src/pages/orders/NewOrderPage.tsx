@@ -1,6 +1,6 @@
 import { useQueries } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 
 import { keys, useCreateOrder, useCustomers, useProducts, useRegions, useSalespersons } from "../../api/hooks";
@@ -8,7 +8,9 @@ import type { Price, Product } from "../../api/types";
 import { Button, Card, ErrorBanner, Field, Input, Money, PageHeader, Select, Spinner, Td } from "../../components/ui";
 import { api } from "../../lib/api";
 import { byId } from "../../lib/format";
+import { newIdempotencyKey } from "../../lib/idempotency";
 import { formatIDR, lineTotal } from "../../lib/money";
+import { useSession } from "../../lib/session";
 
 type Line = { key: number; productId: string; uom: string; qty: string };
 
@@ -21,12 +23,23 @@ export function NewOrderPage() {
   const salespersons = useSalespersons();
   const products = useProducts();
   const regions = useRegions();
-  const create = useCreateOrder();
+  // One key for this filled-in form: a double click or a resend after a
+  // timeout returns the same order instead of creating a second one.
+  const [idempotencyKey] = useState(newIdempotencyKey);
+  const create = useCreateOrder(idempotencyKey);
+  // Ignores a second submit while the first is in flight (a double click).
+  // The Idempotency-Key still protects against resends that get past this.
+  const submitting = useRef(false);
+
+  // A sales user always sells as themselves, so only their region's customers apply.
+  const me = useSession()!.user;
+  const self = me.role === "sales" ? salespersons.data?.find((s) => s.id === me.salesperson_id) : undefined;
 
   const [customerId, setCustomerId] = useState("");
   const [salespersonId, setSalespersonId] = useState("");
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
 
+  const customerOptions = (customers.data ?? []).filter((c) => !self || c.region_id === self.region_id);
   const customer = customers.data?.find((c) => c.id === Number(customerId));
   const region = customer && byId(regions.data).get(customer.region_id);
   const productsById = byId(products.data);
@@ -55,17 +68,25 @@ export function NewOrderPage() {
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    if (submitting.current) return;
+    submitting.current = true;
     create.mutate(
       {
         customer_id: Number(customerId),
-        salesperson_id: Number(salespersonId),
+        // Sales users send none: the order service assigns it from their token.
+        salesperson_id: me.role === "sales" ? undefined : Number(salespersonId),
         lines: lines.map((l) => ({ product_id: Number(l.productId), uom: l.uom, qty: Number(l.qty) })),
       },
-      { onSuccess: (o) => navigate(`/orders/${o.id}`) },
+      {
+        onSuccess: (o) => navigate(`/orders/${o.id}`),
+        onSettled: () => {
+          submitting.current = false;
+        },
+      },
     );
   };
 
-  if (customers.isPending || products.isPending) return <Spinner />;
+  if (customers.isPending || products.isPending || salespersons.isPending) return <Spinner />;
 
   return (
     <>
@@ -90,29 +111,35 @@ export function NewOrderPage() {
                 <option value="" disabled>
                   Select a customer…
                 </option>
-                {(customers.data ?? []).map((c) => (
+                {customerOptions.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.code} — {c.name}
                   </option>
                 ))}
               </Select>
             </Field>
-            <Field
-              label="Salesperson"
-              htmlFor="salesperson"
-              hint={customer && eligible.length === 0 ? "No salesperson covers this customer's region yet." : "Only salespeople covering the customer's region."}
-            >
-              <Select id="salesperson" value={salespersonId} onChange={(e) => setSalespersonId(e.target.value)} disabled={!customer} required>
-                <option value="" disabled>
-                  {customer ? "Select a salesperson…" : "Choose a customer first"}
-                </option>
-                {eligible.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
+            {me.role === "sales" ? (
+              <Field label="Salesperson" htmlFor="salesperson" hint="Orders you create are always yours. Only customers in your region are listed.">
+                <Input id="salesperson" value={self?.name ?? me.name} disabled />
+              </Field>
+            ) : (
+              <Field
+                label="Salesperson"
+                htmlFor="salesperson"
+                hint={customer && eligible.length === 0 ? "No salesperson covers this customer's region yet." : "Only salespeople covering the customer's region."}
+              >
+                <Select id="salesperson" value={salespersonId} onChange={(e) => setSalespersonId(e.target.value)} disabled={!customer} required>
+                  <option value="" disabled>
+                    {customer ? "Select a salesperson…" : "Choose a customer first"}
                   </option>
-                ))}
-              </Select>
-            </Field>
+                  {eligible.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
           </div>
         </Card>
 

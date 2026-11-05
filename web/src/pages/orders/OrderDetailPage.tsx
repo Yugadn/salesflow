@@ -9,6 +9,8 @@ import { DeliveryStatusBadge, OrderStatusBadge } from "../../components/StatusBa
 import { Button, Card, ErrorBanner, Money, PageHeader, QueryState, Table, Td } from "../../components/ui";
 import { num } from "../../components/head";
 import { formatDate } from "../../lib/format";
+import { can } from "../../lib/permissions";
+import { useSession } from "../../lib/session";
 
 const steps: { status: OrderStatus; label: string; waiting?: string }[] = [
   { status: "DRAFT", label: "Draft" },
@@ -42,8 +44,10 @@ function OrderView({ order }: { order: Order }) {
   const confirm = useOrderAction(order.id, "confirm");
   const cancel = useOrderAction(order.id, "cancel");
   const regions = useRegions();
+  const user = useSession()!.user;
   const deliveries = useDeliveries({ order_id: order.id });
-  const invoices = useInvoices({ order_id: order.id });
+  // Invoices are for admins; others see the invoice number the order carries.
+  const invoices = useInvoices({ order_id: order.id }, can.seeInvoices(user));
   const delivery = deliveries.data?.[0];
   const invoice = invoices.data?.[0];
   const region = regions.data?.find((r) => r.id === order.region_id);
@@ -59,7 +63,8 @@ function OrderView({ order }: { order: Order }) {
         }
         description={`${order.customer_name} · ${order.salesperson_name}`}
         actions={
-          order.status === "DRAFT" && (
+          order.status === "DRAFT" &&
+          can.sell(user) && (
             <>
               <Button variant="danger" loading={cancel.isPending} onClick={() => cancel.mutate()}>
                 Cancel order
@@ -147,6 +152,8 @@ function OrderView({ order }: { order: Order }) {
                   <Link to={`/invoices/${invoice.id}`} className="font-mono text-xs text-indigo-700 hover:underline">
                     {invoice.number} · <Money value={invoice.total} />
                   </Link>
+                ) : order.invoice_number ? (
+                  <span className="font-mono text-xs text-slate-700">{order.invoice_number}</span>
                 ) : (
                   <span className="text-slate-400">—</span>
                 )}

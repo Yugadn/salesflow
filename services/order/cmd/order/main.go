@@ -8,8 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/yugadn/salesflow/pkg/auth"
 	"github.com/yugadn/salesflow/pkg/config"
 	"github.com/yugadn/salesflow/pkg/db"
 	"github.com/yugadn/salesflow/pkg/httpx"
@@ -18,6 +20,7 @@ import (
 	"github.com/yugadn/salesflow/pkg/rabbit"
 	"github.com/yugadn/salesflow/services/order/internal/client"
 	"github.com/yugadn/salesflow/services/order/internal/handler"
+	"github.com/yugadn/salesflow/services/order/internal/idempotency"
 	"github.com/yugadn/salesflow/services/order/internal/repository"
 	"github.com/yugadn/salesflow/services/order/internal/usecase"
 	"github.com/yugadn/salesflow/services/order/migrations"
@@ -36,7 +39,12 @@ func main() {
 	dbURL := config.MustString("DATABASE_URL")
 	amqpURL := config.MustString("RABBITMQ_URL")
 	masterURL := config.MustString("MASTER_URL")
+	redisURL := config.MustString("REDIS_URL")
 
+	if err := db.EnsureDatabase(ctx, dbURL); err != nil {
+		log.Error("ensure database", "err", err)
+		os.Exit(1)
+	}
 	pool, err := db.Connect(ctx, dbURL)
 	if err != nil {
 		log.Error("connect database", "err", err)
@@ -48,7 +56,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	svc := usecase.NewService(repository.NewPostgres(pool), client.NewMaster(masterURL))
+	redisOpts, err := redis.ParseURL(redisURL)
+	if err != nil {
+		log.Error("parse REDIS_URL", "err", err)
+		os.Exit(1)
+	}
+	// No ping at start-up: requests without an Idempotency-Key work even while
+	// Redis is down, and those with one fail with 503 until it is back.
+	rdb := redis.NewClient(redisOpts)
+	defer func() { _ = rdb.Close() }()
+
+	svc := usecase.NewService(repository.NewPostgres(pool), client.NewMaster(masterURL)).
+		WithIdempotency(idempotency.NewRedis(rdb))
 
 	publisher := rabbit.NewPublisher(amqpURL)
 	defer publisher.Close()
@@ -62,6 +81,7 @@ func main() {
 
 	e := httpx.NewServer(log)
 	httpx.RegisterHealth(e, pool)
+	e.Use(auth.Middleware(auth.NewVerifier(config.MustString("JWKS_URL"))))
 	handler.New(svc).Register(e)
 
 	g, ctx := errgroup.WithContext(ctx)

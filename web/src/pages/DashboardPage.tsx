@@ -8,6 +8,8 @@ import { Card, EmptyState, Money, PageHeader, QueryState, Table, Td } from "../c
 import { num } from "../components/head";
 import { formatDate } from "../lib/format";
 import { formatIDR, toCents } from "../lib/money";
+import { can } from "../lib/permissions";
+import { useSession } from "../lib/session";
 
 const pipeline: { status: OrderStatus; label: string; hint: string }[] = [
   { status: "DRAFT", label: "Drafts", hint: "awaiting confirmation" },
@@ -21,14 +23,19 @@ export function DashboardPage() {
   const orders = useOrders();
   const toShip = useDeliveries({ status: "PENDING" });
   const inTransit = useDeliveries({ status: "SHIPPED" });
-  const invoices = useInvoices();
+  const user = useSession()!.user;
+  const showBilling = can.seeInvoices(user);
+  const invoices = useInvoices({}, showBilling);
 
   const count = (s: OrderStatus) => (orders.data ?? []).filter((o) => o.status === s).length;
   const billed = (invoices.data ?? []).reduce((sum, i) => sum + toCents(i.total), 0n);
 
   return (
     <>
-      <PageHeader title="Dashboard" description="Most recent 200 orders, deliveries and invoices." />
+      <PageHeader
+        title={`Welcome, ${user.name.split(" ")[0]}`}
+        description={user.role === "sales" ? "Your most recent 200 orders, and deliveries across the company." : "Most recent 200 orders, deliveries and invoices."}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {pipeline.map((p) => (
@@ -44,10 +51,10 @@ export function DashboardPage() {
         ))}
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+      <div className={"mt-4 grid gap-4 " + (showBilling ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
         <Stat label="To ship" value={toShip.data?.length} to="/deliveries?status=PENDING" />
         <Stat label="In transit" value={inTransit.data?.length} to="/deliveries?status=SHIPPED" />
-        <Stat label="Billed" value={invoices.data ? formatIDR(billed) : undefined} to="/invoices" />
+        {showBilling && <Stat label="Billed" value={invoices.data ? formatIDR(billed) : undefined} to="/invoices" />}
       </div>
 
       <div className="mt-6 grid items-start gap-6 lg:grid-cols-[3fr_2fr]">
@@ -103,11 +110,13 @@ export function DashboardPage() {
               </li>
             ))}
           </ol>
+          {can.sell(user) && (
           <div className="border-t border-slate-200 px-4 py-3">
             <Link to="/orders/new" className="inline-flex items-center gap-1 text-sm font-medium text-indigo-700 hover:underline">
               Create an order <ArrowRight className="size-4" aria-hidden />
             </Link>
           </div>
+          )}
         </Card>
       </div>
     </>

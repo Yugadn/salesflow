@@ -1,7 +1,7 @@
 COMPOSE := docker compose -f deploy/docker-compose.yml
-SERVICES := master order warehouse billing
+SERVICES := auth master order warehouse billing
 
-.PHONY: up down logs seed web-dev test test-integration cover e2e e2e-chaos lint sqlc
+.PHONY: up down logs seed web-dev test test-integration cover e2e e2e-chaos lint sqlc gateway-check
 
 up: ## build and start the whole stack, waiting until every container is healthy
 	$(COMPOSE) up -d --build --wait
@@ -36,6 +36,9 @@ e2e-chaos: ## e2e plus tests that stop containers and replay events
 
 lint:
 	golangci-lint run ./...
+
+gateway-check: ## render and validate the KrakenD configuration
+	docker run --rm -v "$(CURDIR)/deploy/krakend:/etc/krakend:ro" -e FC_ENABLE=1 -e FC_SETTINGS=/etc/krakend/settings 		devopsfaith/krakend:2.9.4 check -t -c /etc/krakend/krakend.tmpl
 
 sqlc: ## regenerate type-safe query code
 	for s in $(SERVICES); do (cd services/$$s && sqlc generate) || exit 1; done

@@ -7,6 +7,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/yugadn/salesflow/pkg/auth"
 	"github.com/yugadn/salesflow/pkg/httpx"
 	"github.com/yugadn/salesflow/services/master/internal/domain"
 	"github.com/yugadn/salesflow/services/master/internal/usecase"
@@ -20,31 +21,34 @@ func New(svc *usecase.Service) *Handler { return &Handler{svc: svc} }
 
 // Register mounts all routes on e.
 func (h *Handler) Register(e *echo.Echo) {
-	e.POST("/regions", h.createRegion)
-	e.GET("/regions", h.listRegions)
-	e.PUT("/regions/:id", h.updateRegion)
+	read, write := auth.AnyRole, auth.AdminOnly
 
-	e.POST("/customers", h.createCustomer)
-	e.GET("/customers", h.listCustomers)
-	e.GET("/customers/:id", h.getCustomer)
-	e.PUT("/customers/:id", h.updateCustomer)
+	e.POST("/regions", h.createRegion, write)
+	e.GET("/regions", h.listRegions, read)
+	e.PUT("/regions/:id", h.updateRegion, write)
 
-	e.POST("/salespersons", h.createSalesperson)
-	e.GET("/salespersons", h.listSalespersons)
-	e.PUT("/salespersons/:id", h.updateSalesperson)
+	e.POST("/customers", h.createCustomer, write)
+	e.GET("/customers", h.listCustomers, read)
+	e.GET("/customers/:id", h.getCustomer, read)
+	e.PUT("/customers/:id", h.updateCustomer, write)
 
-	e.POST("/uoms", h.createUoM)
-	e.GET("/uoms", h.listUoMs)
+	e.POST("/salespersons", h.createSalesperson, write)
+	e.GET("/salespersons", h.listSalespersons, read)
+	e.PUT("/salespersons/:id", h.updateSalesperson, write)
 
-	e.POST("/products", h.createProduct)
-	e.GET("/products", h.listProducts)
-	e.GET("/products/:id", h.getProduct)
-	e.PUT("/products/:id", h.updateProduct)
-	e.PUT("/products/:id/uoms", h.setConversion)
-	e.PUT("/products/:id/prices", h.setPrice)
-	e.GET("/products/:id/prices", h.listPrices)
+	e.POST("/uoms", h.createUoM, write)
+	e.GET("/uoms", h.listUoMs, read)
 
-	// Service-to-service endpoint used by order-service.
+	e.POST("/products", h.createProduct, write)
+	e.GET("/products", h.listProducts, read)
+	e.GET("/products/:id", h.getProduct, read)
+	e.PUT("/products/:id", h.updateProduct, write)
+	e.PUT("/products/:id/uoms", h.setConversion, write)
+	e.PUT("/products/:id/prices", h.setPrice, write)
+	e.GET("/products/:id/prices", h.listPrices, read)
+
+	// Service-to-service, reachable only inside the network; the auth
+	// middleware skips /internal/ routes.
 	e.POST("/internal/quote", h.quote)
 }
 

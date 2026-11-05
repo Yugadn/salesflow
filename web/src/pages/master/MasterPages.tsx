@@ -2,6 +2,12 @@ import { useSaveCustomer, useSaveRegion, useSaveSalesperson, useCreateUoM, useCu
 import type { Customer, Region, Salesperson, UoM } from "../../api/types";
 import { CrudPage } from "../../components/CrudPage";
 import { byId } from "../../lib/format";
+import { can } from "../../lib/permissions";
+import { useSession } from "../../lib/session";
+
+function useCanEdit() {
+  return can.editMasterData(useSession()?.user);
+}
 
 function useRegionOptions() {
   const regions = useRegions();
@@ -10,11 +16,14 @@ function useRegionOptions() {
 }
 
 export function RegionsPage() {
+  const canEdit = useCanEdit();
   return (
     <CrudPage<Region>
       title="Regions"
       description="Sales territories. Each has its own price list and is served by one warehouse."
       noun="region"
+      canCreate={canEdit}
+      editable={canEdit}
       query={useRegions()}
       save={useSaveRegion()}
       rowKey={(r) => r.id}
@@ -31,12 +40,15 @@ export function RegionsPage() {
 }
 
 export function CustomersPage() {
+  const canEdit = useCanEdit();
   const { regionsById, options } = useRegionOptions();
   return (
     <CrudPage<Customer>
       title="Customers"
       description="Stores and distributors that buy from you. Their region decides which prices and salespeople apply."
       noun="customer"
+      canCreate={canEdit}
+      editable={canEdit}
       query={useCustomers()}
       save={useSaveCustomer()}
       rowKey={(c) => c.id}
@@ -57,12 +69,15 @@ export function CustomersPage() {
 }
 
 export function SalespersonsPage() {
+  const canEdit = useCanEdit();
   const { regionsById, options } = useRegionOptions();
   return (
     <CrudPage<Salesperson>
       title="Salespersons"
       description="A salesperson can only take orders from customers in their own region."
       noun="salesperson"
+      canCreate={canEdit}
+      editable={canEdit}
       query={useSalespersons()}
       save={useSaveSalesperson()}
       rowKey={(s) => s.id}
@@ -81,11 +96,13 @@ export function SalespersonsPage() {
 }
 
 export function UoMsPage() {
+  const canEdit = useCanEdit();
   return (
     <CrudPage<UoM>
       title="Units of measure"
       description="Units products are counted and sold in. How many base units each holds is set per product."
       noun="unit"
+      canCreate={canEdit}
       query={useUoMs()}
       save={useCreateUoM()}
       editable={false}

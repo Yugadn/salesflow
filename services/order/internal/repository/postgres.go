@@ -101,13 +101,16 @@ func (r repo) GetOrderForUpdate(ctx context.Context, id int64) (domain.Order, er
 	return r.withLines(ctx, toOrder(row))
 }
 
-func (r repo) ListOrders(ctx context.Context, status domain.Status, limit int) ([]domain.Order, error) {
-	var filter *string
-	if status != "" {
-		s := string(status)
-		filter = &s
+func (r repo) ListOrders(ctx context.Context, f usecase.ListFilter) ([]domain.Order, error) {
+	params := sqlcdb.ListOrdersParams{Limit: int32(f.Limit)}
+	if f.Status != "" {
+		s := string(f.Status)
+		params.Status = &s
 	}
-	rows, err := r.q.ListOrders(ctx, sqlcdb.ListOrdersParams{Limit: int32(limit), Status: filter})
+	if f.SalespersonID > 0 {
+		params.SalespersonID = &f.SalespersonID
+	}
+	rows, err := r.q.ListOrders(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("list orders: %w", err)
 	}

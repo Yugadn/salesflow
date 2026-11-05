@@ -8,8 +8,11 @@ import { CrudPage } from "../../components/CrudPage";
 import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, QueryState, Select, Table, Td } from "../../components/ui";
 import { num } from "../../components/head";
 import { byId } from "../../lib/format";
+import { can } from "../../lib/permissions";
+import { useSession } from "../../lib/session";
 
 export function WarehousesPage() {
+  const canWork = can.workStock(useSession()?.user);
   const regions = useRegions();
   const regionsById = byId(regions.data);
   return (
@@ -17,6 +20,8 @@ export function WarehousesPage() {
       title="Warehouses"
       description="One warehouse serves each region and reserves stock for that region's orders."
       noun="warehouse"
+      canCreate={canWork}
+      editable={canWork}
       query={useWarehouses()}
       save={useSaveWarehouse()}
       rowKey={(w) => w.id}
@@ -56,6 +61,7 @@ export function WarehousesPage() {
 }
 
 export function WarehouseStockPage() {
+  const canWork = can.workStock(useSession()?.user);
   const id = Number(useParams().id);
   const warehouses = useWarehouses();
   const stocks = useStocks(id);
@@ -97,7 +103,7 @@ export function WarehouseStockPage() {
             </Table>
           </QueryState>
         </Card>
-        <ReceiveForm warehouseId={id} />
+        {canWork && <ReceiveForm warehouseId={id} />}
       </div>
     </>
   );

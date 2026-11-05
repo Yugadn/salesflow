@@ -3,8 +3,20 @@ info:
   title: salesflow
   version: 0.1.0
   description: |
-    B2B sales & distribution, order-to-cash. Four services, one spec; each path
-    lists the service that serves it.
+    B2B sales & distribution, order-to-cash. Five services behind one gateway;
+    each path lists the service that serves it.
+
+    **Authentication.** Sign in with `POST /api/auth/login` and send the token
+    as `Authorization: Bearer <token>` on every other call. Requests without a
+    valid token get `401`; a role that may not use an endpoint gets `403`.
+    Rejections made by the gateway itself have an empty body. Sign-in is
+    rate-limited per client (`429`).
+
+    | Role | May |
+    |---|---|
+    | `admin` | everything |
+    | `sales` | read master data and stock; create, confirm and cancel **their own** orders (others' orders are `404`) |
+    | `warehouse` | read everything except invoices; receive stock, ship and deliver |
 
     Every success response is `{"data": ...}` and every error is
     `{"error": {"code": "...", "message": "..."}}`. Money is a decimal string
@@ -12,10 +24,15 @@ info:
     `reserved` are counted in the product's base unit.
 
 servers:
-  - url: http://localhost:8081
-    description: master-service (default)
+  - url: http://localhost:3000/api/master
+    description: master-service through the gateway (default)
+
+security:
+  - bearerAuth: []
 
 tags:
+  - name: auth
+    description: auth-service · sign-in, users, signing keys
   - name: master
     description: master-service · :8081 · regions, customers, salespersons, products, UoM, prices
   - name: order
@@ -26,9 +43,95 @@ tags:
     description: billing-service · :8084 · invoices
 
 paths:
+  # ---------------------------------------------------------------- auth
+  /login:
+    servers: [{ url: http://localhost:3000/api/auth }]
+    post:
+      tags: [auth]
+      summary: Sign in
+      description: Returns an RS256 token valid for 8 hours. Wrong email, wrong password and an inactive account all give the same `401`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+            example: { email: admin@salesflow.local, password: admin12345 }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/Session" } } } } } }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { description: Too many sign-in attempts from this client; retry later }
+
+  /me:
+    servers: [{ url: http://localhost:3000/api/auth }]
+    get:
+      tags: [auth]
+      summary: The signed-in user
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/User" } } } } } }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /users:
+    servers: [{ url: http://localhost:3000/api/auth }]
+    get:
+      tags: [auth]
+      summary: List users (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/User" } } } }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [auth]
+      summary: Create a user (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserInput" }
+            example: { email: andi@salesflow.local, name: Andi Wijaya, password: sales12345, role: sales, salesperson_id: 1 }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/User" } } } } } }
+        "409": { description: "`email_taken` or `salesperson_has_account`", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /users/{id}:
+    servers: [{ url: http://localhost:3000/api/auth }]
+    put:
+      tags: [auth]
+      summary: Update a user (admin)
+      description: Email cannot change. Leave `password` empty to keep it. Admins cannot remove their own admin access.
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserInput" }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/User" } } } } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /.well-known/jwks.json:
+    servers: [{ url: "http://auth:8085", description: internal network only }]
+    get:
+      tags: [auth]
+      summary: Public signing keys (JWKS)
+      description: Read by the gateway and every service to verify tokens. Served bare, not wrapped in `data`.
+      security: []
+      responses:
+        "200": { description: A JSON Web Key Set }
+
   # ---------------------------------------------------------------- master
   /regions:
-    servers: [{ url: http://localhost:8081 }]
+    servers: [{ url: http://localhost:3000/api/master }]
     post:
       tags: [master]
       summary: Create a sales region
@@ -44,7 +147,7 @@ paths:
         "200": { $ref: "#/components/responses/RegionList" }
 
   /regions/{id}:
-    servers: [{ url: http://localhost:8081 }]
+    servers: [{ url: http://localhost:3000/api/master }]
     put:
       tags: [master]
       summary: Update a region
@@ -62,7 +165,7 @@ paths:
         "422": { $ref: "#/components/responses/Error" }
 
   /customers:
-    servers: [{ url: http://localhost:8081 }]
+    servers: [{ url: http://localhost:3000/api/master }]
     post:
       tags: [master]
       summary: Create a customer
@@ -87,7 +190,7 @@ paths:
               schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Customer" } } } }
 
   /customers/{id}:
-    servers: [{ url: http://localhost:8081 }]
+    servers: [{ url: http://localhost:3000/api/master }]
     get:
       tags: [master]
       summary: Get a customer
@@ -113,7 +216,7 @@ paths:
         "422": { $ref: "#/components/responses/Error" }
 
   /salespersons:
-    servers: [{ url: http://localhost:8081 }]
+    servers: [{ url: http://localhost:3000/api/master }]
     post:
       tags: [master]
       summary: Create a salesperson
@@ -140,7 +243,7 @@ paths:
               schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Salesperson" } } } }
 
   /salespersons/{id}:
-    servers: [{ url: http://localhost:8081 }]
+    servers: [{ url: http://localhost:3000/api/master }]
     put:
       tags: [master]
       summary: Update a salesperson
@@ -158,7 +261,7 @@ paths:
         "422": { $ref: "#/components/responses/Error" }
 
   /uoms:
-    servers: [{ url: http://localhost:8081 }]
+    servers: [{ url: http://localhost:3000/api/master }]
     post:
       tags: [master]
       summary: Create a unit of measure
@@ -182,7 +285,7 @@ paths:
               schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/UoM" } } } }
 
   /products:
-    servers: [{ url: http://localhost:8081 }]
+    servers: [{ url: http://localhost:3000/api/master }]
     post:
       tags: [master]
       summary: Create a product
@@ -208,7 +311,7 @@ paths:
               schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Product" } } } }
 
   /products/{id}:
-    servers: [{ url: http://localhost:8081 }]
+    servers: [{ url: http://localhost:3000/api/master }]
     get:
       tags: [master]
       summary: Get a product
@@ -234,7 +337,7 @@ paths:
         "422": { $ref: "#/components/responses/Error" }
 
   /products/{id}/uoms:
-    servers: [{ url: http://localhost:8081 }]
+    servers: [{ url: http://localhost:3000/api/master }]
     put:
       tags: [master]
       summary: Add or change a UoM conversion
@@ -252,7 +355,7 @@ paths:
         "422": { $ref: "#/components/responses/Error" }
 
   /products/{id}/prices:
-    servers: [{ url: http://localhost:8081 }]
+    servers: [{ url: http://localhost:3000/api/master }]
     put:
       tags: [master]
       summary: Set the price of a product in a region for one UoM
@@ -281,11 +384,12 @@ paths:
               schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Price" } } } }
 
   /internal/quote:
-    servers: [{ url: http://localhost:8081 }]
+    servers: [{ url: "http://master:8081", description: internal network only }]
     post:
       tags: [master]
       summary: Price order lines for a customer's region (service-to-service)
-      description: Called by order-service when a draft is created. Not meant for clients.
+      description: Called by order-service when a draft is created. Not exposed by the gateway and needs no token.
+      security: []
       requestBody:
         required: true
         content:
@@ -298,14 +402,24 @@ paths:
 
   # ---------------------------------------------------------------- order
   /orders:
-    servers: [{ url: http://localhost:8082 }]
+    servers: [{ url: http://localhost:3000/api/order }]
     post:
       tags: [order]
       summary: Create a draft sales order
       description: |
         Prices every line from the customer's regional price list and converts
         quantities to base units. Fails with `region_mismatch` when the
-        salesperson does not cover the customer's region.
+        salesperson does not cover the customer's region. A `sales` user may
+        omit `salesperson_id` (it defaults to them) and may not name anyone else.
+
+        Send an `Idempotency-Key` to make retries safe: repeating the request
+        with the same key returns the order the first one created (`200`,
+        `Idempotent-Replayed: true`) instead of a duplicate.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9_\-:.]+$' }
       requestBody:
         required: true
         content:
@@ -317,9 +431,13 @@ paths:
               lines: [{ product_id: 1, uom: DUS, qty: 2 }, { product_id: 1, uom: PCS, qty: 6 }]
       responses:
         "201": { $ref: "#/components/responses/Order" }
+        "200": { description: "Replay: the order an earlier request with the same Idempotency-Key created", content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/Order" } } } } } }
+        "403": { description: "`not_your_order`: a sales user named another salesperson", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "409": { description: "`request_in_progress`: the same Idempotency-Key is still being processed", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
         "422":
-          description: "Validation error: `region_mismatch`, `price_not_set`, `uom_not_configured`, `duplicate_line`, ..."
+          description: "Validation error: `region_mismatch`, `price_not_set`, `uom_not_configured`, `duplicate_line`, `idempotency_key_reused`, ..."
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+        "503": { description: "`idempotency_unavailable`: the key could not be checked; retry", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
     get:
       tags: [order]
       summary: List orders
@@ -334,7 +452,7 @@ paths:
               schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Order" } } } }
 
   /orders/{id}:
-    servers: [{ url: http://localhost:8082 }]
+    servers: [{ url: http://localhost:3000/api/order }]
     get:
       tags: [order]
       summary: Get an order
@@ -344,7 +462,7 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
 
   /orders/{id}/confirm:
-    servers: [{ url: http://localhost:8082 }]
+    servers: [{ url: http://localhost:3000/api/order }]
     post:
       tags: [order]
       summary: Confirm a draft
@@ -356,7 +474,7 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
 
   /orders/{id}/cancel:
-    servers: [{ url: http://localhost:8082 }]
+    servers: [{ url: http://localhost:3000/api/order }]
     post:
       tags: [order]
       summary: Cancel a draft
@@ -368,7 +486,7 @@ paths:
 
   # ---------------------------------------------------------------- warehouse
   /warehouses:
-    servers: [{ url: http://localhost:8083 }]
+    servers: [{ url: http://localhost:3000/api/warehouse }]
     post:
       tags: [warehouse]
       summary: Create a warehouse (one per region)
@@ -393,7 +511,7 @@ paths:
               schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Warehouse" } } } }
 
   /warehouses/{id}:
-    servers: [{ url: http://localhost:8083 }]
+    servers: [{ url: http://localhost:3000/api/warehouse }]
     put:
       tags: [warehouse]
       summary: Rename a warehouse
@@ -412,7 +530,7 @@ paths:
         "422": { $ref: "#/components/responses/Error" }
 
   /warehouses/{id}/receipts:
-    servers: [{ url: http://localhost:8083 }]
+    servers: [{ url: http://localhost:3000/api/warehouse }]
     post:
       tags: [warehouse]
       summary: Receive stock (base units)
@@ -434,7 +552,7 @@ paths:
         "422": { $ref: "#/components/responses/Error" }
 
   /warehouses/{id}/stocks:
-    servers: [{ url: http://localhost:8083 }]
+    servers: [{ url: http://localhost:3000/api/warehouse }]
     get:
       tags: [warehouse]
       summary: Stock levels
@@ -448,7 +566,7 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
 
   /deliveries:
-    servers: [{ url: http://localhost:8083 }]
+    servers: [{ url: http://localhost:3000/api/warehouse }]
     get:
       tags: [warehouse]
       summary: List delivery orders
@@ -464,7 +582,7 @@ paths:
               schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Delivery" } } } }
 
   /deliveries/{id}:
-    servers: [{ url: http://localhost:8083 }]
+    servers: [{ url: http://localhost:3000/api/warehouse }]
     get:
       tags: [warehouse]
       summary: Get a delivery order
@@ -474,7 +592,7 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
 
   /deliveries/{id}/ship:
-    servers: [{ url: http://localhost:8083 }]
+    servers: [{ url: http://localhost:3000/api/warehouse }]
     post:
       tags: [warehouse]
       summary: Mark a delivery as shipped
@@ -485,7 +603,7 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
 
   /deliveries/{id}/deliver:
-    servers: [{ url: http://localhost:8083 }]
+    servers: [{ url: http://localhost:3000/api/warehouse }]
     post:
       tags: [warehouse]
       summary: Record proof of delivery
@@ -518,7 +636,7 @@ paths:
 
   # ---------------------------------------------------------------- billing
   /invoices:
-    servers: [{ url: http://localhost:8084 }]
+    servers: [{ url: http://localhost:3000/api/billing }]
     get:
       tags: [billing]
       summary: List invoices
@@ -534,7 +652,7 @@ paths:
               schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/Invoice" } } } }
 
   /invoices/{id}:
-    servers: [{ url: http://localhost:8084 }]
+    servers: [{ url: http://localhost:3000/api/billing }]
     get:
       tags: [billing]
       summary: Get an invoice
@@ -544,6 +662,12 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT (RS256)
+
   parameters:
     ID:
       name: id
@@ -577,6 +701,33 @@ components:
       content: { application/json: { schema: { type: object, properties: { data: { $ref: "#/components/schemas/Delivery" } } } } }
 
   schemas:
+    User:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        email: { type: string, format: email }
+        name: { type: string }
+        role: { type: string, enum: [admin, sales, warehouse] }
+        salesperson_id: { type: integer, format: int64, description: Set for sales users only }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+    UserInput:
+      type: object
+      required: [name, role]
+      properties:
+        email: { type: string, format: email, description: Required on create; ignored on update }
+        name: { type: string }
+        password: { type: string, format: password, minLength: 8, maxLength: 72, description: Required on create; optional on update }
+        role: { type: string, enum: [admin, sales, warehouse] }
+        salesperson_id: { type: integer, format: int64, description: Required when role is sales }
+        active: { type: boolean }
+    Session:
+      type: object
+      properties:
+        token: { type: string, description: "Send as Authorization: Bearer <token>" }
+        expires_at: { type: string, format: date-time }
+        user: { $ref: "#/components/schemas/User" }
+
     Money:
       type: string
       pattern: '^-?\d+(\.\d{1,2})?$'

@@ -5,19 +5,29 @@ import type { UseMutationResult } from "@tanstack/react-query";
 import { Pencil, Plus } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 
-import { Button, Card, EmptyState, ErrorBanner, Field, Input, Modal, QueryState, Select, Table, Td } from "./ui";
 import { num } from "./head";
+import { Button, Card, EmptyState, ErrorBanner, Field, Input, Modal, QueryState, Select, Table, Td } from "./ui";
+
+type Form = Record<string, string>;
 
 export type FieldDef = {
   name: string;
   label: string;
-  type?: "text" | "number" | "select";
+  type?: "text" | "number" | "select" | "password" | "boolean";
   options?: { value: string | number; label: string }[];
   hint?: string;
+  /** Not required (an empty value is left out of the request). */
+  optional?: boolean;
+  /** Required on create, optional on edit (e.g. a password reset). */
+  optionalOnEdit?: boolean;
   /** Shown but not editable once the record exists (e.g. a UoM code). */
   lockedOnEdit?: boolean;
-  /** Field is not sent on update (the API ignores or forbids changing it). */
+  /** Not sent on update (the API ignores or forbids changing it). */
   createOnly?: boolean;
+  /** Only shown, and sent, when editing an existing record. */
+  editOnly?: boolean;
+  /** Only shown, and sent, when this returns true for the current form. */
+  showWhen?: (form: Form) => boolean;
 };
 
 export type Column<T> = { header: string; cell: (row: T) => ReactNode; numeric?: boolean };
@@ -36,36 +46,55 @@ type Props<T> = {
   fields: FieldDef[];
   rowKey: (row: T) => string | number;
   save: SaveMutation;
-  /** Omit to make rows read-only (no edit endpoint). */
+  /** Whether "New" is offered (the caller's role may create). */
+  canCreate?: boolean;
+  /** Whether rows can be edited (an edit endpoint exists and the role may use it). */
   editable?: boolean;
   rowActions?: (row: T) => ReactNode;
 };
 
-export function CrudPage<T extends object>({ title, description, noun, query, columns, fields, rowKey, save, editable = true, rowActions }: Props<T>) {
+export function CrudPage<T extends object>({
+  title,
+  description,
+  noun,
+  query,
+  columns,
+  fields,
+  rowKey,
+  save,
+  canCreate = true,
+  editable = true,
+  rowActions,
+}: Props<T>) {
   const [editing, setEditing] = useState<T | "new" | null>(null);
-  const [form, setForm] = useState<Record<string, string>>({});
+  const [form, setForm] = useState<Form>({});
+  const isNew = editing === "new";
+
+  const visible = (f: FieldDef) => !(isNew && f.editOnly) && (!f.showWhen || f.showWhen(form));
 
   const open = (row: T | "new") => {
     save.reset();
-    const initial: Record<string, string> = {};
+    const initial: Form = {};
     for (const f of fields) {
       const value = row === "new" ? undefined : (row as Record<string, unknown>)[f.name];
-      initial[f.name] = value === undefined || value === null ? "" : String(value);
+      initial[f.name] = f.type === "password" || value === undefined || value === null ? "" : String(value);
     }
     setForm(initial);
     setEditing(row);
   };
   const close = () => setEditing(null);
-  const isNew = editing === "new";
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const body: Record<string, unknown> = {};
     if (!isNew && editing) body.id = (editing as { id?: number }).id;
     for (const f of fields) {
-      if (!isNew && f.createOnly) continue;
+      if (!visible(f) || (!isNew && f.createOnly)) continue;
       const raw = form[f.name] ?? "";
-      body[f.name] = f.type === "number" || (f.type === "select" && typeof f.options?.[0]?.value === "number") ? Number(raw) : raw;
+      if (raw === "" && (f.optional || (!isNew && f.optionalOnEdit))) continue;
+      if (f.type === "boolean") body[f.name] = raw === "true";
+      else if (f.type === "number" || (f.type === "select" && typeof f.options?.[0]?.value === "number")) body[f.name] = Number(raw);
+      else body[f.name] = raw;
     }
     save.mutate(body, { onSuccess: close });
   };
@@ -80,16 +109,18 @@ export function CrudPage<T extends object>({ title, description, noun, query, co
           <h1 className="text-xl font-semibold text-slate-900">{title}</h1>
           {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
         </div>
-        <Button onClick={() => open("new")}>
-          <Plus className="size-4" aria-hidden /> New {noun}
-        </Button>
+        {canCreate && (
+          <Button onClick={() => open("new")}>
+            <Plus className="size-4" aria-hidden /> New {noun}
+          </Button>
+        )}
       </div>
 
       <Card>
         <QueryState query={query}>
           <Table
             head={[...columns.map((c) => (c.numeric ? num(c.header) : c.header)), ...(showActions ? [""] : [])]}
-            empty={rows.length === 0 && <EmptyState title={`No ${noun}s yet`} hint={`Create the first ${noun} to get started.`} />}
+            empty={rows.length === 0 && <EmptyState title={`No ${noun}s yet`} hint={canCreate ? `Create the first ${noun} to get started.` : undefined} />}
           >
             {rows.map((row) => (
               <tr key={rowKey(row)} className="hover:bg-slate-50">
@@ -132,32 +163,43 @@ export function CrudPage<T extends object>({ title, description, noun, query, co
         }
       >
         <form id="crud-form" onSubmit={submit} className="space-y-4">
-          {fields.map((f, i) => {
+          {fields.filter(visible).map((f, i) => {
             const id = `field-${f.name}`;
             const locked = !isNew && (f.lockedOnEdit || f.createOnly);
             const common = {
               id,
               value: form[f.name] ?? "",
               disabled: locked,
-              required: true,
+              required: !f.optional && !(!isNew && f.optionalOnEdit),
               autoFocus: i === 0,
               onChange: (e: { target: { value: string } }) => setForm((prev) => ({ ...prev, [f.name]: e.target.value })),
             };
             return (
               <Field key={f.name} label={f.label} htmlFor={id} hint={locked ? "Cannot be changed after creation." : f.hint}>
-                {f.type === "select" ? (
+                {f.type === "select" || f.type === "boolean" ? (
                   <Select {...common}>
                     <option value="" disabled>
                       Select…
                     </option>
-                    {f.options?.map((o) => (
+                    {(f.type === "boolean"
+                      ? [
+                          { value: "true", label: "Active" },
+                          { value: "false", label: "Inactive" },
+                        ]
+                      : (f.options ?? [])
+                    ).map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
                       </option>
                     ))}
                   </Select>
                 ) : (
-                  <Input {...common} type={f.type === "number" ? "number" : "text"} min={f.type === "number" ? 0 : undefined} />
+                  <Input
+                    {...common}
+                    type={f.type === "number" ? "number" : f.type === "password" ? "password" : "text"}
+                    autoComplete={f.type === "password" ? "new-password" : undefined}
+                    min={f.type === "number" ? 0 : undefined}
+                  />
                 )}
               </Field>
             );

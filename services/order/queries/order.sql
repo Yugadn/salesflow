@@ -17,7 +17,8 @@ SELECT * FROM orders WHERE id = $1 FOR UPDATE;
 
 -- name: ListOrders :many
 SELECT * FROM orders
-WHERE sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status')::text
+WHERE (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status')::text)
+  AND (sqlc.narg('salesperson_id')::bigint IS NULL OR salesperson_id = sqlc.narg('salesperson_id')::bigint)
 ORDER BY id DESC
 LIMIT $1;
 

@@ -1,5 +1,9 @@
 name: salesflow
 
+# nginx (web, :3000) is the only public entry point: it serves the app and
+# forwards /api/ to the KrakenD gateway, which is internal like every service.
+# PostgreSQL and RabbitMQ are published only for local inspection.
+
 x-service: &service
   restart: unless-stopped
   healthcheck:
@@ -11,6 +15,9 @@ x-service: &service
 x-amqp-env: &amqp-env
   RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
   RETRY_DELAY: 3s
+
+x-jwks-env: &jwks-env
+  JWKS_URL: http://auth:8085/.well-known/jwks.json
 
 services:
   postgres:
@@ -37,12 +44,31 @@ services:
       timeout: 5s
       retries: 20
 
+  redis:
+    image: redis:8-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  auth:
+    <<: *service
+    build: { context: .., args: { SERVICE: auth } }
+    environment:
+      DATABASE_URL: postgres://salesflow:salesflow@postgres:5432/auth_db?sslmode=disable
+      # The first admin, created on an empty database. Change it for anything but local use.
+      ADMIN_EMAIL: admin@salesflow.local
+      ADMIN_PASSWORD: admin12345
+    depends_on:
+      postgres: { condition: service_healthy }
+
   master:
     <<: *service
     build: { context: .., args: { SERVICE: master } }
     environment:
+      <<: *jwks-env
       DATABASE_URL: postgres://salesflow:salesflow@postgres:5432/master_db?sslmode=disable
-    ports: ["8081:8081"]
     depends_on:
       postgres: { condition: service_healthy }
 
@@ -50,22 +76,22 @@ services:
     <<: *service
     build: { context: .., args: { SERVICE: order } }
     environment:
-      <<: *amqp-env
+      <<: [*amqp-env, *jwks-env]
       DATABASE_URL: postgres://salesflow:salesflow@postgres:5432/order_db?sslmode=disable
       MASTER_URL: http://master:8081
-    ports: ["8082:8082"]
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
+      redis: { condition: service_healthy }
       master: { condition: service_healthy }
 
   warehouse:
     <<: *service
     build: { context: .., args: { SERVICE: warehouse } }
     environment:
-      <<: *amqp-env
+      <<: [*amqp-env, *jwks-env]
       DATABASE_URL: postgres://salesflow:salesflow@postgres:5432/warehouse_db?sslmode=disable
-    ports: ["8083:8083"]
     depends_on:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
@@ -74,13 +100,33 @@ services:
     <<: *service
     build: { context: .., args: { SERVICE: billing } }
     environment:
-      <<: *amqp-env
+      <<: [*amqp-env, *jwks-env]
       DATABASE_URL: postgres://salesflow:salesflow@postgres:5432/billing_db?sslmode=disable
       BUSINESS_TIMEZONE: Asia/Jakarta
-    ports: ["8084:8084"]
     depends_on:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
+
+  gateway:
+    image: devopsfaith/krakend:2.9.4
+    restart: unless-stopped
+    command: ["run", "-c", "/etc/krakend/krakend.tmpl"]
+    environment:
+      FC_ENABLE: "1"
+      FC_SETTINGS: /etc/krakend/settings
+    volumes:
+      - ./krakend:/etc/krakend:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/__health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      auth: { condition: service_healthy }
+      master: { condition: service_healthy }
+      order: { condition: service_healthy }
+      warehouse: { condition: service_healthy }
+      billing: { condition: service_healthy }
 
   web:
     build: { context: ../web }
@@ -92,10 +138,7 @@ services:
       timeout: 3s
       retries: 20
     depends_on:
-      master: { condition: service_healthy }
-      order: { condition: service_healthy }
-      warehouse: { condition: service_healthy }
-      billing: { condition: service_healthy }
+      gateway: { condition: service_healthy }
 
 volumes:
   pgdata:

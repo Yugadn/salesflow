@@ -130,12 +130,9 @@ func publish(t *testing.T, routingKey, body string) {
 
 func waitForBillingHealthy(t *testing.T) {
 	t.Helper()
-	eventually(t, "billing-service to be healthy", func() bool {
-		resp, err := http.Get(billingURL + "/healthz")
-		if err != nil {
-			return false
-		}
-		_ = resp.Body.Close()
-		return resp.StatusCode == http.StatusOK
+	// billing is internal now; it is healthy once the gateway can reach it.
+	eventually(t, "billing-service to answer through the gateway", func() bool {
+		status, _ := call(t, http.MethodGet, billingURL+"/invoices?limit=1", nil, nil)
+		return status == http.StatusOK
 	})
 }

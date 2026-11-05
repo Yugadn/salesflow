@@ -64,6 +64,54 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	}
 }
 
+// EnsureDatabase creates the database named in url if it does not exist yet.
+// The compose init script only runs on an empty volume, so a service added
+// later (auth_db) would otherwise fail against an existing one.
+func EnsureDatabase(ctx context.Context, url string) error {
+	cfg, err := pgx.ParseConfig(url)
+	if err != nil {
+		return fmt.Errorf("parse database url: %w", err)
+	}
+	name := cfg.Database
+	cfg.Database = "postgres"
+
+	var conn *pgx.Conn
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		conn, err = pgx.ConnectConfig(ctx, cfg)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("database server not reachable: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+	defer func() { _ = conn.Close(ctx) }()
+
+	var exists bool
+	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, name).Scan(&exists); err != nil {
+		return fmt.Errorf("check database %s: %w", name, err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := conn.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil && !IsDuplicateDatabase(err) {
+		return fmt.Errorf("create database %s: %w", name, err)
+	}
+	return nil
+}
+
+// IsDuplicateDatabase reports a lost race with another process creating the same database (42P04).
+func IsDuplicateDatabase(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "42P04"
+}
+
 // Migrate applies every pending up-migration found in fsys (golang-migrate format).
 func Migrate(url string, fsys fs.FS) error {
 	src, err := iofs.New(fsys, ".")

@@ -1,18 +1,20 @@
-// Command seed fills an empty salesflow stack with realistic demo data through
-// the public API: regions, products with carton/pack conversions and regional
-// prices, customers, salespeople, stocked warehouses, and orders left in
-// every stage of the lifecycle.
+// Command seed fills a salesflow stack with realistic demo data through the
+// public API, signed in as the administrator: regions, products with
+// carton/pack conversions and regional prices, customers, salespeople,
+// stocked warehouses, orders left in every stage of the lifecycle, and a
+// login for every salesperson plus one for the warehouse.
 //
 //	docker compose -f deploy/docker-compose.yml up -d --build --wait
-//	go run ./tools/seed                      # talks to the web gateway on :3000
-//	go run ./tools/seed -api http://localhost:5173/api   # or the Vite dev server
+//	go run ./tools/seed
 //
-// All names are fictional.
+// Master data is only created once; demo logins are added if missing, so it
+// is safe to run again. All names are fictional.
 package main
 
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -21,21 +23,112 @@ import (
 	"time"
 )
 
-var api string
+var (
+	api   string
+	token string
+)
+
+// Demo logins; the admin account comes from the auth service's configuration.
+const (
+	salesPassword     = "sales12345"
+	warehousePassword = "gudang12345"
+)
 
 func main() {
-	flag.StringVar(&api, "api", "http://localhost:3000/api", "base URL that routes /<service>/... to each service")
+	flag.StringVar(&api, "api", "http://localhost:3000/api", "public API base URL (nginx -> gateway)")
+	adminEmail := flag.String("admin-email", "admin@salesflow.local", "administrator email")
+	adminPassword := flag.String("admin-password", "admin12345", "administrator password")
 	flag.Parse()
 	log.SetFlags(0)
 
+	token = login(*adminEmail, *adminPassword)
+
 	var regions []struct{ Code string }
 	must(call("GET", "/master/regions", nil, &regions))
+	seeded := false
 	for _, r := range regions {
-		if r.Code == "JKT" {
-			log.Println("already seeded (region JKT exists); nothing to do")
-			return
-		}
+		seeded = seeded || r.Code == "JKT"
 	}
+	if seeded {
+		log.Println("master data already seeded (region JKT exists)")
+	} else {
+		seedMasterAndOrders()
+	}
+	seedUsers()
+
+	log.Println()
+	log.Println("Demo logins (http://localhost:3000):")
+	log.Printf("  %-28s %-12s %s\n", *adminEmail, *adminPassword, "admin")
+	for _, u := range demoUsers {
+		log.Printf("  %-28s %-12s %s\n", u.email, u.password, u.role)
+	}
+}
+
+type demoUser struct {
+	email, name, role, salespersonCode, password string
+}
+
+var demoUsers = []demoUser{
+	{"andi@salesflow.local", "Andi Wijaya", "sales", "S-01", salesPassword},
+	{"rina@salesflow.local", "Rina Kartika", "sales", "S-02", salesPassword},
+	{"dedi@salesflow.local", "Dedi Kurniawan", "sales", "S-03", salesPassword},
+	{"siti@salesflow.local", "Siti Rahma", "sales", "S-04", salesPassword},
+	{"gudang@salesflow.local", "Petugas Gudang", "warehouse", "", warehousePassword},
+}
+
+// seedUsers creates each demo login that does not exist yet.
+func seedUsers() {
+	var users []struct{ Email string }
+	must(call("GET", "/auth/users", nil, &users))
+	exists := map[string]bool{}
+	for _, u := range users {
+		exists[u.Email] = true
+	}
+	var salespersons []struct {
+		ID   int64
+		Code string
+	}
+	must(call("GET", "/master/salespersons", nil, &salespersons))
+	spByCode := map[string]int64{}
+	for _, s := range salespersons {
+		spByCode[s.Code] = s.ID
+	}
+
+	for _, u := range demoUsers {
+		if exists[u.email] {
+			continue
+		}
+		body := map[string]any{"email": u.email, "name": u.name, "role": u.role, "password": u.password}
+		if u.salespersonCode != "" {
+			id, ok := spByCode[u.salespersonCode]
+			if !ok {
+				log.Printf("skipping %s: salesperson %s not found", u.email, u.salespersonCode)
+				continue
+			}
+			body["salesperson_id"] = id
+		}
+		must(call("POST", "/auth/users", body, nil))
+		log.Printf("created login %s (%s)", u.email, u.role)
+	}
+}
+
+// login signs in, waiting out the sign-in rate limit if it is hit.
+func login(email, password string) string {
+	deadline := time.Now().Add(2 * time.Minute)
+	for {
+		var s struct{ Token string }
+		err := call("POST", "/auth/login", map[string]string{"email": email, "password": password}, &s)
+		if err == nil {
+			return s.Token
+		}
+		if !errors.Is(err, errRateLimited) || time.Now().After(deadline) {
+			log.Fatalf("sign in as %s: %v", email, err)
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func seedMasterAndOrders() {
 
 	// ---- master data
 	for _, u := range [][2]string{{"PCS", "Pieces"}, {"PAK", "Pack"}, {"DUS", "Carton"}} {
@@ -167,8 +260,6 @@ func main() {
 
 	place("C-SBY-02", "S-04", line{"KOPI-25", "DUS", 2}, line{"MIE-85", "PCS", 20})
 	log.Println("order 6: draft, not confirmed yet")
-
-	log.Println("seeded")
 }
 
 func create(path string, body any) int64 {
@@ -205,6 +296,9 @@ func call(method, path string, body, out any) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%s %s: %w (is the stack running?)", method, path, err)
@@ -213,6 +307,9 @@ func call(method, path string, body, out any) error {
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
+	}
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return errRateLimited
 	}
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("%s %s: %d %s", method, path, resp.StatusCode, raw)
@@ -226,6 +323,8 @@ func call(method, path string, body, out any) error {
 	}
 	return json.Unmarshal(env.Data, out)
 }
+
+var errRateLimited = errors.New("rate limited")
 
 func must(err error) {
 	if err != nil {

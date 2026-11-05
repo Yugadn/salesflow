@@ -1,0 +1,63 @@
+{{- /*
+  KrakenD Flexible Configuration template. Every route is declared once in
+  settings/endpoints.json; this template turns each into a gateway endpoint:
+  /api/<service><path> -> http://<service><path>.
+
+  - output_encoding no-op: status codes and error bodies pass through untouched.
+  - auth/validator: RS256 JWT checked against auth-service's JWKS; the route's
+    role set is enforced on the "role" claim. Public routes skip it.
+  - qos/ratelimit/router: per-IP limits, much stricter on login.
+
+  Check with:  krakend check -c krakend.tmpl   (with FC_ENABLE=1 and FC_* paths)
+*/ -}}
+{
+  "$schema": "https://www.krakend.io/schema/v2.9/krakend.json",
+  "version": 3,
+  "name": "salesflow gateway",
+  "port": 8080,
+  "timeout": "10s",
+  "cache_ttl": "0s",
+  "extra_config": {
+    "telemetry/logging": { "level": "INFO", "prefix": "[GATEWAY]", "stdout": true },
+    "router": {
+      "@comment": "The gateway is reachable only from nginx on the internal network. nginx overwrites X-Real-IP with the real peer address, so trusting it here keys rate limits on the actual client and a spoofed header from outside is discarded before it arrives.",
+      "forwarded_by_client_ip": true,
+      "remote_ip_headers": ["X-Real-IP"],
+      "trusted_proxies": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+    }
+  },
+  "endpoints": [
+    {{- range $i, $r := .endpoints.routes }}
+    {{- if $i }},{{ end }}
+    {
+      "endpoint": "/api/{{ $r.service }}{{ $r.path }}",
+      "method": "{{ $r.method }}",
+      "output_encoding": "no-op",
+      "input_headers": ["Authorization", "Content-Type", "Idempotency-Key"],
+      "input_query_strings": {{ marshal $.endpoints.query_strings }},
+      "backend": [
+        {
+          "host": ["{{ index $.endpoints.services $r.service }}"],
+          "url_pattern": "{{ $r.path }}",
+          "encoding": "no-op"
+        }
+      ],
+      "extra_config": {
+        {{- if ne $r.roles "public" }}
+        "auth/validator": {
+          "alg": "RS256",
+          "jwk_url": "{{ $.endpoints.jwks_url }}",
+          "disable_jwk_security": true,
+          "cache": true,
+          "issuer": "salesflow-auth",
+          "audience": ["salesflow"],
+          "roles_key": "role",
+          "roles": {{ marshal (index $.endpoints.role_sets $r.roles) }}
+        },
+        {{- end }}
+        "qos/ratelimit/router": {{ if eq $r.limit "login" }}{{ marshal $.endpoints.rate_limits.login }}{{ else }}{{ marshal $.endpoints.rate_limits.standard }}{{ end }}
+      }
+    }
+    {{- end }}
+  ]
+}

@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/yugadn/salesflow/pkg/auth"
 	"github.com/yugadn/salesflow/pkg/config"
 	"github.com/yugadn/salesflow/pkg/db"
 	"github.com/yugadn/salesflow/pkg/httpx"
@@ -28,6 +29,10 @@ func main() {
 
 	dbURL := config.MustString("DATABASE_URL")
 
+	if err := db.EnsureDatabase(ctx, dbURL); err != nil {
+		log.Error("ensure database", "err", err)
+		os.Exit(1)
+	}
 	pool, err := db.Connect(ctx, dbURL)
 	if err != nil {
 		log.Error("connect database", "err", err)
@@ -42,6 +47,7 @@ func main() {
 	svc := usecase.NewService(repository.NewPostgres(pool))
 	e := httpx.NewServer(log)
 	httpx.RegisterHealth(e, pool)
+	e.Use(auth.Middleware(auth.NewVerifier(config.MustString("JWKS_URL"))))
 	handler.New(svc).Register(e)
 
 	log.Info("listening", "addr", addr)

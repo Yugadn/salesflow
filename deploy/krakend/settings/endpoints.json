@@ -1,0 +1,67 @@
+{
+  "jwks_url": "http://auth:8085/.well-known/jwks.json",
+  "services": {
+    "auth": "http://auth:8085",
+    "master": "http://master:8081",
+    "order": "http://order:8082",
+    "warehouse": "http://warehouse:8083",
+    "billing": "http://billing:8084"
+  },
+  "role_sets": {
+    "any": ["admin", "sales", "warehouse"],
+    "admin": ["admin"],
+    "sell": ["admin", "sales"],
+    "work": ["admin", "warehouse"]
+  },
+  "query_strings": ["status", "limit", "order_id", "customer_id"],
+  "rate_limits": {
+    "standard": { "max_rate": 500, "capacity": 500, "client_max_rate": 50, "client_capacity": 50, "strategy": "ip" },
+    "login": { "max_rate": 300, "capacity": 300, "client_max_rate": 10, "client_capacity": 10, "every": "1m", "strategy": "ip" }
+  },
+  "routes": [
+    { "service": "auth", "method": "POST", "path": "/login", "roles": "public", "limit": "login" },
+    { "service": "auth", "method": "GET", "path": "/me", "roles": "any" },
+    { "service": "auth", "method": "GET", "path": "/users", "roles": "admin" },
+    { "service": "auth", "method": "POST", "path": "/users", "roles": "admin" },
+    { "service": "auth", "method": "PUT", "path": "/users/{id}", "roles": "admin" },
+
+    { "service": "master", "method": "GET", "path": "/regions", "roles": "any" },
+    { "service": "master", "method": "POST", "path": "/regions", "roles": "admin" },
+    { "service": "master", "method": "PUT", "path": "/regions/{id}", "roles": "admin" },
+    { "service": "master", "method": "GET", "path": "/customers", "roles": "any" },
+    { "service": "master", "method": "POST", "path": "/customers", "roles": "admin" },
+    { "service": "master", "method": "GET", "path": "/customers/{id}", "roles": "any" },
+    { "service": "master", "method": "PUT", "path": "/customers/{id}", "roles": "admin" },
+    { "service": "master", "method": "GET", "path": "/salespersons", "roles": "any" },
+    { "service": "master", "method": "POST", "path": "/salespersons", "roles": "admin" },
+    { "service": "master", "method": "PUT", "path": "/salespersons/{id}", "roles": "admin" },
+    { "service": "master", "method": "GET", "path": "/uoms", "roles": "any" },
+    { "service": "master", "method": "POST", "path": "/uoms", "roles": "admin" },
+    { "service": "master", "method": "GET", "path": "/products", "roles": "any" },
+    { "service": "master", "method": "POST", "path": "/products", "roles": "admin" },
+    { "service": "master", "method": "GET", "path": "/products/{id}", "roles": "any" },
+    { "service": "master", "method": "PUT", "path": "/products/{id}", "roles": "admin" },
+    { "service": "master", "method": "PUT", "path": "/products/{id}/uoms", "roles": "admin" },
+    { "service": "master", "method": "GET", "path": "/products/{id}/prices", "roles": "any" },
+    { "service": "master", "method": "PUT", "path": "/products/{id}/prices", "roles": "admin" },
+
+    { "service": "order", "method": "GET", "path": "/orders", "roles": "any" },
+    { "service": "order", "method": "POST", "path": "/orders", "roles": "sell" },
+    { "service": "order", "method": "GET", "path": "/orders/{id}", "roles": "any" },
+    { "service": "order", "method": "POST", "path": "/orders/{id}/confirm", "roles": "sell" },
+    { "service": "order", "method": "POST", "path": "/orders/{id}/cancel", "roles": "sell" },
+
+    { "service": "warehouse", "method": "GET", "path": "/warehouses", "roles": "any" },
+    { "service": "warehouse", "method": "POST", "path": "/warehouses", "roles": "work" },
+    { "service": "warehouse", "method": "PUT", "path": "/warehouses/{id}", "roles": "work" },
+    { "service": "warehouse", "method": "POST", "path": "/warehouses/{id}/receipts", "roles": "work" },
+    { "service": "warehouse", "method": "GET", "path": "/warehouses/{id}/stocks", "roles": "any" },
+    { "service": "warehouse", "method": "GET", "path": "/deliveries", "roles": "any" },
+    { "service": "warehouse", "method": "GET", "path": "/deliveries/{id}", "roles": "any" },
+    { "service": "warehouse", "method": "POST", "path": "/deliveries/{id}/ship", "roles": "work" },
+    { "service": "warehouse", "method": "POST", "path": "/deliveries/{id}/deliver", "roles": "work" },
+
+    { "service": "billing", "method": "GET", "path": "/invoices", "roles": "admin" },
+    { "service": "billing", "method": "GET", "path": "/invoices/{id}", "roles": "admin" }
+  ]
+}

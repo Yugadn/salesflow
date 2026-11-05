@@ -4,25 +4,86 @@
     "description": "Run the whole collection with the Collection Runner against `make up`.\n\nIt seeds a fresh region (codes carry a random suffix, so it can be re-run), places an order for 2 cartons + 6 pieces, ships it with one carton damaged, and checks that only delivered goods are invoiced.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
   "variable": [
     {
-      "key": "master",
-      "value": "http://localhost:8081"
+      "key": "api",
+      "value": "http://localhost:3000/api"
     },
     {
-      "key": "order",
-      "value": "http://localhost:8082"
+      "key": "admin_email",
+      "value": "admin@salesflow.local"
     },
     {
-      "key": "warehouse",
-      "value": "http://localhost:8083"
+      "key": "admin_password",
+      "value": "admin12345"
     },
     {
-      "key": "billing",
-      "value": "http://localhost:8084"
+      "key": "token",
+      "value": ""
     }
   ],
   "item": [
+    {
+      "name": "0. Sign in",
+      "item": [
+        {
+          "name": "Sign in as admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{api}}/auth/login",
+              "host": [
+                "{{api}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('token', pm.response.json().data.token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
     {
       "name": "1. Master data",
       "item": [
@@ -37,11 +98,12 @@
               }
             ],
             "url": {
-              "raw": "{{master}}/uoms",
+              "raw": "{{api}}/master/uoms",
               "host": [
-                "{{master}}"
+                "{{api}}"
               ],
               "path": [
+                "master",
                 "uoms"
               ]
             },
@@ -87,11 +149,12 @@
               }
             ],
             "url": {
-              "raw": "{{master}}/uoms",
+              "raw": "{{api}}/master/uoms",
               "host": [
-                "{{master}}"
+                "{{api}}"
               ],
               "path": [
+                "master",
                 "uoms"
               ]
             },
@@ -128,11 +191,12 @@
               }
             ],
             "url": {
-              "raw": "{{master}}/regions",
+              "raw": "{{api}}/master/regions",
               "host": [
-                "{{master}}"
+                "{{api}}"
               ],
               "path": [
+                "master",
                 "regions"
               ]
             },
@@ -170,11 +234,12 @@
               }
             ],
             "url": {
-              "raw": "{{master}}/customers",
+              "raw": "{{api}}/master/customers",
               "host": [
-                "{{master}}"
+                "{{api}}"
               ],
               "path": [
+                "master",
                 "customers"
               ]
             },
@@ -212,11 +277,12 @@
               }
             ],
             "url": {
-              "raw": "{{master}}/salespersons",
+              "raw": "{{api}}/master/salespersons",
               "host": [
-                "{{master}}"
+                "{{api}}"
               ],
               "path": [
+                "master",
                 "salespersons"
               ]
             },
@@ -254,11 +320,12 @@
               }
             ],
             "url": {
-              "raw": "{{master}}/products",
+              "raw": "{{api}}/master/products",
               "host": [
-                "{{master}}"
+                "{{api}}"
               ],
               "path": [
+                "master",
                 "products"
               ]
             },
@@ -296,11 +363,12 @@
               }
             ],
             "url": {
-              "raw": "{{master}}/products/{{productId}}/uoms",
+              "raw": "{{api}}/master/products/{{productId}}/uoms",
               "host": [
-                "{{master}}"
+                "{{api}}"
               ],
               "path": [
+                "master",
                 "products",
                 "{{productId}}",
                 "uoms"
@@ -339,11 +407,12 @@
               }
             ],
             "url": {
-              "raw": "{{master}}/products/{{productId}}/prices",
+              "raw": "{{api}}/master/products/{{productId}}/prices",
               "host": [
-                "{{master}}"
+                "{{api}}"
               ],
               "path": [
+                "master",
                 "products",
                 "{{productId}}",
                 "prices"
@@ -382,11 +451,12 @@
               }
             ],
             "url": {
-              "raw": "{{master}}/products/{{productId}}/prices",
+              "raw": "{{api}}/master/products/{{productId}}/prices",
               "host": [
-                "{{master}}"
+                "{{api}}"
               ],
               "path": [
+                "master",
                 "products",
                 "{{productId}}",
                 "prices"
@@ -430,11 +500,12 @@
               }
             ],
             "url": {
-              "raw": "{{warehouse}}/warehouses",
+              "raw": "{{api}}/warehouse/warehouses",
               "host": [
-                "{{warehouse}}"
+                "{{api}}"
               ],
               "path": [
+                "warehouse",
                 "warehouses"
               ]
             },
@@ -472,11 +543,12 @@
               }
             ],
             "url": {
-              "raw": "{{warehouse}}/warehouses/{{warehouseId}}/receipts",
+              "raw": "{{api}}/warehouse/warehouses/{{warehouseId}}/receipts",
               "host": [
-                "{{warehouse}}"
+                "{{api}}"
               ],
               "path": [
+                "warehouse",
                 "warehouses",
                 "{{warehouseId}}",
                 "receipts"
@@ -520,11 +592,12 @@
               }
             ],
             "url": {
-              "raw": "{{order}}/orders",
+              "raw": "{{api}}/order/orders",
               "host": [
-                "{{order}}"
+                "{{api}}"
               ],
               "path": [
+                "order",
                 "orders"
               ]
             },
@@ -563,11 +636,12 @@
               }
             ],
             "url": {
-              "raw": "{{order}}/orders/{{orderId}}/confirm",
+              "raw": "{{api}}/order/orders/{{orderId}}/confirm",
               "host": [
-                "{{order}}"
+                "{{api}}"
               ],
               "path": [
+                "order",
                 "orders",
                 "{{orderId}}",
                 "confirm"
@@ -603,11 +677,12 @@
               }
             ],
             "url": {
-              "raw": "{{order}}/orders/{{orderId}}",
+              "raw": "{{api}}/order/orders/{{orderId}}",
               "host": [
-                "{{order}}"
+                "{{api}}"
               ],
               "path": [
+                "order",
                 "orders",
                 "{{orderId}}"
               ]
@@ -646,11 +721,12 @@
               }
             ],
             "url": {
-              "raw": "{{warehouse}}/warehouses/{{warehouseId}}/stocks",
+              "raw": "{{api}}/warehouse/warehouses/{{warehouseId}}/stocks",
               "host": [
-                "{{warehouse}}"
+                "{{api}}"
               ],
               "path": [
+                "warehouse",
                 "warehouses",
                 "{{warehouseId}}",
                 "stocks"
@@ -682,11 +758,12 @@
               }
             ],
             "url": {
-              "raw": "{{warehouse}}/deliveries?limit=200",
+              "raw": "{{api}}/warehouse/deliveries?limit=200",
               "host": [
-                "{{warehouse}}"
+                "{{api}}"
               ],
               "path": [
+                "warehouse",
                 "deliveries?limit=200"
               ]
             }
@@ -717,11 +794,12 @@
               }
             ],
             "url": {
-              "raw": "{{warehouse}}/deliveries/{{deliveryId}}/ship",
+              "raw": "{{api}}/warehouse/deliveries/{{deliveryId}}/ship",
               "host": [
-                "{{warehouse}}"
+                "{{api}}"
               ],
               "path": [
+                "warehouse",
                 "deliveries",
                 "{{deliveryId}}",
                 "ship"
@@ -751,11 +829,12 @@
               }
             ],
             "url": {
-              "raw": "{{warehouse}}/deliveries/{{deliveryId}}/deliver",
+              "raw": "{{api}}/warehouse/deliveries/{{deliveryId}}/deliver",
               "host": [
-                "{{warehouse}}"
+                "{{api}}"
               ],
               "path": [
+                "warehouse",
                 "deliveries",
                 "{{deliveryId}}",
                 "deliver"
@@ -800,11 +879,12 @@
               }
             ],
             "url": {
-              "raw": "{{order}}/orders/{{orderId}}",
+              "raw": "{{api}}/order/orders/{{orderId}}",
               "host": [
-                "{{order}}"
+                "{{api}}"
               ],
               "path": [
+                "order",
                 "orders",
                 "{{orderId}}"
               ]
@@ -845,11 +925,12 @@
               }
             ],
             "url": {
-              "raw": "{{billing}}/invoices?customer_id={{customerId}}",
+              "raw": "{{api}}/billing/invoices?customer_id={{customerId}}",
               "host": [
-                "{{billing}}"
+                "{{api}}"
               ],
               "path": [
+                "billing",
                 "invoices?customer_id={{customerId}}"
               ]
             }

@@ -10,8 +10,17 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/yugadn/salesflow/pkg/apperr"
+	"github.com/yugadn/salesflow/pkg/auth"
 	"github.com/yugadn/salesflow/pkg/events"
 	"github.com/yugadn/salesflow/services/order/internal/domain"
+)
+
+var (
+	admin = auth.Principal{UserID: 1, Role: auth.RoleAdmin}
+	// andi is salesperson 20, the one in jakartaQuote; budi is another salesperson.
+	andi      = auth.Principal{UserID: 2, Role: auth.RoleSales, SalespersonID: 20}
+	budi      = auth.Principal{UserID: 3, Role: auth.RoleSales, SalespersonID: 21}
+	warehouse = auth.Principal{UserID: 4, Role: auth.RoleWarehouse}
 )
 
 func jakartaQuote() domain.Quote {
@@ -37,7 +46,7 @@ func draftInput() CreateInput {
 func TestCreate_SavesPricedDraft(t *testing.T) {
 	svc, store, _ := newService()
 
-	o, err := svc.Create(context.Background(), draftInput())
+	o, err := svc.Create(context.Background(), admin, draftInput())
 
 	require.NoError(t, err)
 	assert.Equal(t, domain.StatusDraft, o.Status)
@@ -52,7 +61,7 @@ func TestCreate_ValidatesBeforeCallingMaster(t *testing.T) {
 	in := draftInput()
 	in.Lines[0].Qty = 0
 
-	_, err := svc.Create(context.Background(), in)
+	_, err := svc.Create(context.Background(), admin, in)
 
 	require.Error(t, err)
 	assert.Zero(t, master.calls, "invalid input must not cost a network call")
@@ -62,7 +71,7 @@ func TestCreate_PropagatesMasterValidationError(t *testing.T) {
 	svc, store, master := newService()
 	master.err = apperr.Invalid("price_not_set", "no price")
 
-	_, err := svc.Create(context.Background(), draftInput())
+	_, err := svc.Create(context.Background(), admin, draftInput())
 
 	ae, ok := apperr.As(err)
 	require.True(t, ok)
@@ -73,10 +82,10 @@ func TestCreate_PropagatesMasterValidationError(t *testing.T) {
 func TestConfirm_EmitsOrderConfirmed(t *testing.T) {
 	svc, store, _ := newService()
 	ctx := context.Background()
-	o, err := svc.Create(ctx, draftInput())
+	o, err := svc.Create(ctx, admin, draftInput())
 	require.NoError(t, err)
 
-	confirmed, err := svc.Confirm(ctx, o.ID)
+	confirmed, err := svc.Confirm(ctx, admin, o.ID)
 
 	require.NoError(t, err)
 	assert.Equal(t, domain.StatusConfirmed, confirmed.Status)
@@ -97,11 +106,11 @@ func TestConfirm_EmitsOrderConfirmed(t *testing.T) {
 func TestConfirm_TwiceIsRejectedAndEmitsOnce(t *testing.T) {
 	svc, store, _ := newService()
 	ctx := context.Background()
-	o, _ := svc.Create(ctx, draftInput())
-	_, err := svc.Confirm(ctx, o.ID)
+	o, _ := svc.Create(ctx, admin, draftInput())
+	_, err := svc.Confirm(ctx, admin, o.ID)
 	require.NoError(t, err)
 
-	_, err = svc.Confirm(ctx, o.ID)
+	_, err = svc.Confirm(ctx, admin, o.ID)
 
 	ae, ok := apperr.As(err)
 	require.True(t, ok)
@@ -112,7 +121,7 @@ func TestConfirm_TwiceIsRejectedAndEmitsOnce(t *testing.T) {
 func TestConfirm_UnknownOrder(t *testing.T) {
 	svc, _, _ := newService()
 
-	_, err := svc.Confirm(context.Background(), 404)
+	_, err := svc.Confirm(context.Background(), admin, 404)
 
 	assert.True(t, apperr.IsNotFound(err))
 }
@@ -121,9 +130,9 @@ func TestConfirm_UnknownOrder(t *testing.T) {
 func confirmedOrder(t *testing.T, svc *Service) int64 {
 	t.Helper()
 	ctx := context.Background()
-	o, err := svc.Create(ctx, draftInput())
+	o, err := svc.Create(ctx, admin, draftInput())
 	require.NoError(t, err)
-	_, err = svc.Confirm(ctx, o.ID)
+	_, err = svc.Confirm(ctx, admin, o.ID)
 	require.NoError(t, err)
 	return o.ID
 }
@@ -189,7 +198,7 @@ func TestHandleEvent_FailureRollsBackInboxMark(t *testing.T) {
 func TestHandleEvent_PermanentFailures(t *testing.T) {
 	svc, _, _ := newService()
 	ctx := context.Background()
-	draft, err := svc.Create(ctx, draftInput())
+	draft, err := svc.Create(ctx, admin, draftInput())
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -214,4 +223,68 @@ func TestHandleEvent_IgnoresUnrelatedEvents(t *testing.T) {
 	err := svc.HandleEvent(context.Background(), event(t, "something.else", map[string]int{}))
 
 	assert.NoError(t, err)
+}
+
+func TestSales_CreatesOrdersOnlyAsThemselves(t *testing.T) {
+	svc, store, _ := newService()
+	ctx := context.Background()
+
+	t.Run("salesperson defaults to the caller", func(t *testing.T) {
+		in := draftInput()
+		in.SalespersonID = 0
+		o, err := svc.Create(ctx, andi, in)
+		require.NoError(t, err)
+		assert.Equal(t, int64(20), o.SalespersonID)
+	})
+
+	t.Run("cannot order as someone else", func(t *testing.T) {
+		before := len(store.orders)
+		_, err := svc.Create(ctx, budi, draftInput()) // draftInput names salesperson 20
+		ae, ok := apperr.As(err)
+		require.True(t, ok)
+		assert.Equal(t, apperr.KindForbidden, ae.Kind)
+		assert.Len(t, store.orders, before)
+	})
+}
+
+func TestSales_SeeAndTouchOnlyTheirOwnOrders(t *testing.T) {
+	svc, _, _ := newService()
+	ctx := context.Background()
+	o, err := svc.Create(ctx, andi, draftInput())
+	require.NoError(t, err)
+
+	t.Run("owner and admin can read it", func(t *testing.T) {
+		for _, p := range []auth.Principal{andi, admin, warehouse} {
+			_, err := svc.Get(ctx, p, o.ID)
+			assert.NoError(t, err, "role %s", p.Role)
+		}
+	})
+
+	t.Run("another salesperson gets not found, not forbidden", func(t *testing.T) {
+		_, err := svc.Get(ctx, budi, o.ID)
+		assert.True(t, apperr.IsNotFound(err), "must not reveal the order exists")
+		_, err = svc.Confirm(ctx, budi, o.ID)
+		assert.True(t, apperr.IsNotFound(err))
+		_, err = svc.Cancel(ctx, budi, o.ID)
+		assert.True(t, apperr.IsNotFound(err))
+	})
+
+	t.Run("lists are filtered to the caller", func(t *testing.T) {
+		mine, err := svc.List(ctx, andi, ListFilter{})
+		require.NoError(t, err)
+		assert.Len(t, mine, 1)
+
+		theirs, err := svc.List(ctx, budi, ListFilter{SalespersonID: 20}) // asking for andi's orders
+		require.NoError(t, err)
+		assert.Empty(t, theirs, "a sales user cannot widen the filter")
+
+		all, err := svc.List(ctx, admin, ListFilter{})
+		require.NoError(t, err)
+		assert.Len(t, all, 1)
+	})
+
+	t.Run("owner can confirm", func(t *testing.T) {
+		_, err := svc.Confirm(ctx, andi, o.ID)
+		assert.NoError(t, err)
+	})
 }

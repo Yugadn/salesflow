@@ -55,8 +55,14 @@ func (f *fakeStore) GetOrderForUpdate(ctx context.Context, id int64) (domain.Ord
 	return f.GetOrder(ctx, id)
 }
 
-func (f *fakeStore) ListOrders(context.Context, domain.Status, int) ([]domain.Order, error) {
-	return nil, nil
+func (f *fakeStore) ListOrders(_ context.Context, filter ListFilter) ([]domain.Order, error) {
+	var out []domain.Order
+	for _, o := range f.orders {
+		if (filter.Status == "" || o.Status == filter.Status) && (filter.SalespersonID == 0 || o.SalespersonID == filter.SalespersonID) {
+			out = append(out, o)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeStore) UpdateOrder(_ context.Context, o domain.Order) error {
